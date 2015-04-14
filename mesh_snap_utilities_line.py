@@ -103,9 +103,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             return self.vert, 'VERT'
                 
     if isinstance(bm_geom, bmesh.types.BMEdge):
-        #print('pegou as edges',bm_geom[-1].index, 'e', bm_geom[0].index, 'agora analise')
         if not hasattr(self, 'bedge') or self.bedge != bm_geom or bool_update == True:
-            #print(bm_geom[0].index, bm_geom[-1].index)
             self.bedge = bm_geom
             self.vert0 = obj_matrix_world*self.bedge.verts[0].co
             self.vert1 = obj_matrix_world*self.bedge.verts[1].co
@@ -113,7 +111,6 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             self.Pcent = location_3d_to_region_2d(self.region, self.rv3d, self.po_cent)
             self.Pvert0 = location_3d_to_region_2d(self.region, self.rv3d, self.vert0)
             self.Pvert1 = location_3d_to_region_2d(self.region, self.rv3d, self.vert1)
-            #print(self.Pcent, self.Pvert0, self.Pvert1)
             
             try:
                 self.tan = (self.Pvert1[1]-self.Pvert0[1])/(self.Pvert1[0]-self.Pvert0[0])
@@ -126,26 +123,14 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 point_perpendicular = mathutils.geometry.intersect_point_line(vert_perp, self.vert0, self.vert1)
                 self.po_perp = point_perpendicular[0]
                 self.Pperp = location_3d_to_region_2d(self.region, self.rv3d, self.po_perp)
-            else:
-                return unProject(self.region, self.rv3d, mcursor2)[3], 'FACE'
-            
-        if hasattr(self, 'Pperp') and bool_constrain == False and abs(self.Pperp[0]-mcursor2[0]) < 10 and abs(self.Pperp[1]-mcursor2[1]) < 10:
-            return self.po_perp, 'PERPENDICULAR'
-        
-        elif bool_constrain == False and self.Pcent != None and abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
-            return self.po_cent, 'CENTER'
 
-        else:
-            if bool_constrain == True:
-                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
-                end = orig + view_vector
-                if self.const == None:
-                    self.const = self.po_cent
-                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-                if point != None:
-                    return point[0], 'OUT'
-           
+        if bool_constrain == False:
+            if hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor2[0]) < 10 and abs(self.Pperp[1]-mcursor2[1]) < 10:
+                return self.po_perp, 'PERPENDICULAR'
+        
+            elif self.Pcent != None and abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
+                return self.po_cent, 'CENTER'
+            
             else:
                 orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
                 view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
@@ -160,7 +145,17 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 #else:
                 point = mathutils.geometry.intersect_line_line(self.vert0, self.vert1, orig, end)
                 return point[0], 'EDGE'
-                    
+
+        elif bool_constrain == True:
+            orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
+            view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
+            end = orig + view_vector
+            if self.const == None:
+                self.const = self.po_cent
+            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
+            if point != None:
+                return point[0], 'OUT'
+
     if isinstance(bm_geom, bmesh.types.BMFace):
         if bool_constrain == True:
             if self.const == None:
