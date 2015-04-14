@@ -126,8 +126,6 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 point_perpendicular = mathutils.geometry.intersect_point_line(vert_perp, self.vert0, self.vert1)
                 self.po_perp = point_perpendicular[0]
                 self.Pperp = location_3d_to_region_2d(self.region, self.rv3d, self.po_perp)
-            if depth == 1:
-                return out_Location(self.rv3d, self.region, mcursor2), 'EDGE'
             else:
                 return unProject(self.region, self.rv3d, mcursor2)[3], 'FACE'
             
@@ -503,7 +501,6 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
         if event.type in Navigation.keys:
-            #Navigation2 = Navigation(self.rv3d, self.location)
             Navigation.modal(self, context, event)
 
         elif event.type in Constrain.keys:
