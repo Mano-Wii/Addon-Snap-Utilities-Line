@@ -32,11 +32,6 @@ bl_info = {
 import bpy, bgl, bmesh, mathutils, math
 from mathutils import Vector, Matrix
 from bpy_extras import view3d_utils
-        
-def get_depth(x, y):    
-    depth = bgl.Buffer(bgl.GL_FLOAT, [0.0])
-    bgl.glReadPixels(x, y, 1, 1, bgl.GL_DEPTH_COMPONENT, bgl.GL_FLOAT, depth)
-    return depth[0]
 
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
@@ -87,20 +82,16 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             self.bvert = bm_geom
             self.vert = obj_matrix_world * self.bvert.co
             self.Pvert = location_3d_to_region_2d(self.region, self.rv3d, self.vert)
-            return self.vert, 'VERT'
 
-        else:
-            if bool_constrain == True:
-                if self.const == None:
-                    self.const = self.vert
-                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
-                end = orig + view_vector
-                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-                if point != None:
-                    return point[0], 'OUT'
-            #else:
-            return self.vert, 'VERT'
+        if bool_constrain == True:
+            if self.const == None:
+                self.const = self.vert
+            #point = Vector([(self.vert[index] if vector_constrain==1 else self.const[index]) for index, vector_constrain in enumerate(vector_constrain)])
+            point = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
+            #point = vector_constrain.project(self.vert)
+            return point, 'OUT' #50% is 'OUT'
+        #else:
+        return self.vert, 'VERT'
                 
     if isinstance(bm_geom, bmesh.types.BMEdge):
         if not hasattr(self, 'bedge') or self.bedge != bm_geom or bool_update == True:
@@ -117,7 +108,18 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 self.po_perp = point_perpendicular[0]
                 self.Pperp = location_3d_to_region_2d(self.region, self.rv3d, self.po_perp)
 
-        if bool_constrain == False:
+        if bool_constrain == True:
+            if self.const == None:
+                self.const = self.po_cent
+            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
+            if point == None:
+                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
+                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
+                end = orig + view_vector
+                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
+            return point[0], 'EDGE'
+
+        else:
             if self.Pcent != None and abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
                 return self.po_cent, 'CENTER'
 
@@ -130,17 +132,6 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 end = orig + view_vector
                 point = mathutils.geometry.intersect_line_line(self.vert0, self.vert1, orig, end)
                 return point[0], 'EDGE'
-
-        elif bool_constrain == True:
-            if self.const == None:
-                self.const = self.po_cent
-            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
-            if point == None:
-                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
-                end = orig + view_vector
-                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-            return point[0], 'EDGE'
 
     if isinstance(bm_geom, bmesh.types.BMFace):
         if bool_constrain == True:
@@ -158,10 +149,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
     else:
         if bool_constrain == True:
             if self.const == None:
-                if (depth != 1.0):
-                    self.const = unProject(self.region, self.rv3d, mcursor2)[3]
-                else:
-                    self.const = Vector(out_Location(self.rv3d, self.region, mcursor2))
+                self.const = out_Location(self.rv3d, self.region, mcursor2)
             orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
             view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
             end = orig + view_vector
@@ -270,11 +258,11 @@ def draw_callback_px(self, context):
     bgl.glEnable(bgl.GL_BLEND)
     if self.bool_constrain:
         if self.vector_constrain == Vector((1,0,0)):
-            Color4f = (self.axis_x + (1.0,))
+            Color4f = (self.axis_x_color + (1.0,))
         elif self.vector_constrain == Vector((0,1,0)):
-            Color4f = (self.axis_y + (1.0,))
+            Color4f = (self.axis_y_color + (1.0,))
         elif self.vector_constrain == Vector((0,0,1)):
-            Color4f = (self.axis_z + (1.0,))
+            Color4f = (self.axis_z_color + (1.0,))
         else:
             Color4f = self.constrain_shift_color
     else:
@@ -489,8 +477,8 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.bool_constrain, self.vector_constrain = Constrain2.modal(context, event)
             if self.vector_constrain == 'shift':
                 if isinstance(self.geom, bmesh.types.BMEdge):
-                    self.vector_constrain = self.obj_matrix*self.geom.verts[1].co-self.obj_matrix*self.geom.verts[0].co
-                    #self.vector_constrain = (self.geom.verts[1].co-self.geom.verts[0].co)*self.obj_matrix.inverted()
+                    #self.vector_constrain = self.obj_matrix*self.geom.verts[1].co-self.obj_matrix*self.geom.verts[0].co
+                    self.vector_constrain = (self.geom.verts[1].co-self.geom.verts[0].co)*self.obj_matrix.inverted()
                 else:
                     self.bool_constrain = False
 
@@ -501,7 +489,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
         
         elif event.type == 'MOUSEMOVE':
             x, y = (event.mouse_region_x, event.mouse_region_y)
-            bpy.ops.view3d.select_or_deselect_all('INVOKE_DEFAULT')# This operator also starts the handler of the view 3d. Only Edit Mode. why?
+            bpy.ops.view3d.select_or_deselect_all('INVOKE_DEFAULT')
             if self.list_vertices_co != []:
                 bm_vert_to_perpendicular = self.list_vertices_co[-1]
             else:
@@ -521,7 +509,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             Lsnap_3d = self.obj_matrix.inverted()*snap_3d
             Snap_2d = location_3d_to_region_2d(self.region, self.rv3d, snap_3d)
             if self.bool_constrain: # SELECT FIRST
-                bpy.ops.view3d.select(extend=False, location=(int(Snap_2d[0]), int(Snap_2d[1])))
+                bpy.ops.view3d.select(location=(int(Snap_2d[0]), int(Snap_2d[1])))
                 try:
                     geom2 = self.bm.select_history[0]
                 except: # IndexError or AttributeError:
@@ -606,9 +594,9 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.perpendicular_color = context.user_preferences.addons[__name__].preferences.perpendicular_color
             self.constrain_shift_color = context.user_preferences.addons[__name__].preferences.constrain_shift_color
 
-            self.axis_x = tuple(context.user_preferences.themes[0].user_interface.axis_x)
-            self.axis_y = tuple(context.user_preferences.themes[0].user_interface.axis_y)
-            self.axis_z = tuple(context.user_preferences.themes[0].user_interface.axis_z)
+            self.axis_x_color = tuple(context.user_preferences.themes[0].user_interface.axis_x)
+            self.axis_y_color = tuple(context.user_preferences.themes[0].user_interface.axis_y)
+            self.axis_z_color = tuple(context.user_preferences.themes[0].user_interface.axis_z)
             
             self.intersect = context.user_preferences.addons[__name__].preferences.intersect
 
