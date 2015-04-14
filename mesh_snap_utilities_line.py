@@ -76,7 +76,6 @@ def out_Location(rv3d, region, mcursor):
     return hit
 
 def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor2, bool_constrain, vector_constrain):
-    depth = get_depth((mcursor2[0]+self.region.x),(mcursor2[1]+self.region.y))
     if not hasattr(self, 'const'):
         self.const = None
 
@@ -91,29 +90,17 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             return self.vert, 'VERT'
 
         else: # when self.bvert == bm_geom:
-            if (abs(self.Pvert[0]-mcursor2[0]) < 30 and abs(self.Pvert[1]-mcursor2[1]) < 30 and depth == 1.0) or depth != 1.0:
-                if bool_constrain == True:
-                    if self.const == None:
-                        self.const = self.vert
-                    #point = Vector([(self.vert[index] if vector_constrain==1 else self.const[index]) for index, vector_constrain in enumerate(vector_constrain)])
-                    point = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
-                    #point = vector_constrain.project(self.vert)
-                    return point, 'VERT' #50% is 'OUT'
-                #else:
-                return self.vert, 'VERT'
-            
-            else:
-                if bool_constrain == True:
-                    if self.const == None:
-                        self.const = self.vert
-                    orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-                    view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
-                    end = orig + view_vector
-                    point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-                    if point != None:
-                        return point[0], 'OUT'
-                #else:
-                return out_Location(self.rv3d, self.region, mcursor2), 'OUT'
+            if bool_constrain == True:
+                if self.const == None:
+                    self.const = self.vert
+                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
+                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
+                end = orig + view_vector
+                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
+                if point != None:
+                    return point[0], 'OUT'
+            #else:
+            return self.vert, 'VERT'
                 
     if isinstance(bm_geom, bmesh.types.BMEdge):
         #print('pegou as edges',bm_geom[-1].index, 'e', bm_geom[0].index, 'agora analise')
@@ -151,10 +138,17 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             return self.po_cent, 'CENTER'
 
         else:
-            near_y = self.tan*(self.Pvert1[0]-mcursor2[0])-(self.Pvert1[1]-mcursor2[1])
-            near_x = self.arctan*(self.Pvert1[1]-mcursor2[1])-(self.Pvert1[0]-mcursor2[0])
+            if bool_constrain == True:
+                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
+                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
+                end = orig + view_vector
+                if self.const == None:
+                    self.const = self.po_cent
+                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
+                if point != None:
+                    return point[0], 'OUT'
            
-            if depth != 1.0 or depth == 1.0 and (abs(near_x) < 25 or abs(near_y) < 25) and (self.Pvert0[0]<mcursor2[0]<self.Pvert1[0] or self.Pvert1[0]<mcursor2[0]<self.Pvert0[0] or self.Pvert0[1]<mcursor2[1]<self.Pvert1[1] or self.Pvert1[1]<mcursor2[1]<self.Pvert0[1]):
+            else:
                 orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
                 view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
                 end = orig + view_vector
@@ -168,18 +162,6 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 #else:
                 point = mathutils.geometry.intersect_line_line(self.vert0, self.vert1, orig, end)
                 return point[0], 'EDGE'
-            else:
-                if bool_constrain == True:
-                    orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-                    view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
-                    end = orig + view_vector
-                    if self.const == None:
-                        self.const = self.po_cent
-                    point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-                    if point != None:
-                        return point[0], 'OUT'
-
-                return out_Location(self.rv3d, self.region, mcursor2), 'OUT'
                     
     if isinstance(bm_geom, bmesh.types.BMFace):
         if bool_constrain == True:
@@ -191,10 +173,8 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             point = mathutils.geometry.intersect_point_line(unProject(self.region, self.rv3d, mcursor2)[3], self.const, (self.const+vector_constrain))
             return point[0], 'FACE'
     
-        elif depth != 1.0:
-            return unProject(self.region, self.rv3d, mcursor2)[3], 'FACE'
         else:
-            return out_Location(self.rv3d, self.region, mcursor2), 'OUT'
+            return unProject(self.region, self.rv3d, mcursor2)[3], 'FACE'
     
     else:
         if bool_constrain == True:
@@ -387,8 +367,6 @@ class PanelSnapUtilities(bpy.types.Panel) :
         layout = self.layout
         TheCol = layout.column(align = True)
         TheCol.operator("mesh.snap_utilities_line", icon="GREASEPENCIL")
-        TheCol.operator("mesh.snap_utilities_move", icon="NDOF_TRANS")
-        TheCol.operator("mesh.snap_utilities_rotate", icon="NDOF_TURN")
         
         addon_prefs = context.user_preferences.addons[__name__].preferences
         
@@ -545,7 +523,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
         
         elif event.type == 'MOUSEMOVE':
             x, y = (event.mouse_region_x, event.mouse_region_y)
-            bpy.ops.view3d.select(extend=False, location=(x, y))# This operator also starts the handler of the view 3d. Only Edit Mode. why?
+            bpy.ops.view3d.select_or_deselect_all('INVOKE_DEFAULT')# This operator also starts the handler of the view 3d. Only Edit Mode. why?
             if self.list_vertices_co != []:
                 bm_vert_to_perpendicular = self.list_vertices_co[-1]
             else:
@@ -715,5 +693,5 @@ def unregister():
 
 if __name__ == "__main__":
     global __name__
-    __name__ = "snap_utilities"
+    __name__ = "mesh_snap_utilities_line"
     register()
