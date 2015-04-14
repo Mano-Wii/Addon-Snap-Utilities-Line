@@ -156,7 +156,11 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
             return point[0], 'CONSTRAIN'
         else:
-            return out_Location(self.rv3d, self.region, mcursor2), 'OUT'
+            result, object, matrix, location, normal = unProject(self.region, self.rv3d, mcursor2)
+            if result:
+                return location, 'FACE'
+            else:
+                return out_Location(self.rv3d, self.region, mcursor2), 'OUT'
 
 def get_isolated_edges(bmvert):
     linked = [c for c in bmvert.link_edges[:] if c.link_faces[:] == []]
