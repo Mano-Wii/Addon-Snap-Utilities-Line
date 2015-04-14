@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (2, 6),
+    "version": (2, 7),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -125,36 +125,29 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 self.Pperp = location_3d_to_region_2d(self.region, self.rv3d, self.po_perp)
 
         if bool_constrain == False:
-            if hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor2[0]) < 10 and abs(self.Pperp[1]-mcursor2[1]) < 10:
-                return self.po_perp, 'PERPENDICULAR'
-        
-            elif self.Pcent != None and abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
+            if self.Pcent != None and abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
                 return self.po_cent, 'CENTER'
+
+            elif hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor2[0]) < 10 and abs(self.Pperp[1]-mcursor2[1]) < 10:
+                return self.po_perp, 'PERPENDICULAR'
             
             else:
-                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
+                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2)
+                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2)
                 end = orig + view_vector
-                if bool_constrain == True:
-                    if self.const == None:
-                        self.const = self.po_cent
-                    point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
-                    if point == None:
-                        point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-                    return point[0], 'EDGE'
-                #else:
                 point = mathutils.geometry.intersect_line_line(self.vert0, self.vert1, orig, end)
                 return point[0], 'EDGE'
 
         elif bool_constrain == True:
-            orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-            view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
-            end = orig + view_vector
             if self.const == None:
                 self.const = self.po_cent
-            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-            if point != None:
-                return point[0], 'OUT'
+            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
+            if point == None:
+                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
+                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
+                end = orig + view_vector
+                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
+            return point[0], 'EDGE'
 
     if isinstance(bm_geom, bmesh.types.BMFace):
         if bool_constrain == True:
