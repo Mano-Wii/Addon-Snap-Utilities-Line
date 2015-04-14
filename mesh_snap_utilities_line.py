@@ -158,7 +158,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
         else:
             result, object, matrix, location, normal = unProject(self.region, self.rv3d, mcursor2)
             if result:
-                return location, 'FACE'
+                return location, 'OUT'
             else:
                 return out_Location(self.rv3d, self.region, mcursor2), 'OUT'
 
