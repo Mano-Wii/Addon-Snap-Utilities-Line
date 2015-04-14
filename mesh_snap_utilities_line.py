@@ -26,7 +26,7 @@ bl_info = {
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
-    "wiki_url" : "http://blenderartists.org/forum/showthread.php?363859-Addon-CAD-Snap-Utilities",
+    "wiki_url" : "https://github.com/Mano-Wii/Snap-Utilities-Line/wiki",
     "category": "Mesh"}
     
 import bpy, bgl, bmesh, mathutils, math
@@ -201,13 +201,13 @@ def split_face(self, mesh, Bmesh, listverts, listedges, listfaces):
             listedges = []
 
 def draw(self, obj, Bmesh, bm_geom, location, bool_merge):
-    if not hasattr(self, 'list_vertices'):# not in dir(self):
+    if not hasattr(self, 'list_vertices'):
         self.list_vertices = []
 
-    if not hasattr(self, 'list_edges'):# not in dir(self):
+    if not hasattr(self, 'list_edges'):
         self.list_edges = []
 
-    if not hasattr(self, 'list_faces'):# not in dir(self):
+    if not hasattr(self, 'list_faces'):
         self.list_faces = []
 
     if bool_merge == False:
@@ -327,8 +327,7 @@ class PanelSnapUtilities(bpy.types.Panel) :
     @classmethod
     def poll(cls, context):
         return (context.object is not None and
-                context.object.type == 'MESH')# and
-                #context.object.data.is_editmode)
+                context.object.type == 'MESH')
 
     def draw(self, context):
         layout = self.layout
@@ -395,7 +394,6 @@ class CharMap:
         self.length_entered = length_entered
 
     def modal(self, context, event):
-        # Currently accessing event.ascii seems to crash Blender
         c = self.keys[event.type]
         if event.shift:
             if c == "8":
