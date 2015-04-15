@@ -309,76 +309,7 @@ def draw_callback_px(self, context):
         bgl.glVertex3f(*vert_co)        
     bgl.glVertex3f(*self.location)        
     bgl.glEnd()
-        
-    if self.name == 'ROTATE':
-        bgl.glEnable(bgl.GL_BLEND)
-        bgl.glDepthRange(0,0.99999)
-            
-        amp=self.rv3d.view_distance/15
-            
-        if not hasattr(self, 'cache'):
-            self.cache = True
-            self.n_points = 12
-            seg_angle = 2*math.pi / self.n_points
-            self.c = math.cos(seg_angle)
-            self.s = math.sin(seg_angle)
-            
-        if not hasattr(self, 'vec') or self.vec != self.normal_face or self.bool_constrain:
-            if self.bool_confirm == False:
-                if self.bool_constrain:
-                    self.vec = self.vector_constrain.normalized()
-                else:
-                    self.vec = self.normal_face
-                self.vec_norm = Vector((self.vec[0], self.vec[1])).normalized()
-                if self.vec_norm[0]+self.vec[1] == 0:
-                    self.vec_norm = Vector((1, 0))
-                self.vec_length = Vector((self.vec[0], self.vec[1])).length
-        
-        if  self.bool_constrain:
-            bgl.glColor4f(*Color4f)
-        elif self.vec == Vector((1,0,0)) or self.vec == Vector((-1,0,0)):
-            bgl.glColor4f(1.0, 0.0, 0.0, 1.0)
-        elif self.vec == Vector((0,1,0)) or self.vec == Vector((0,-1,0)):
-            bgl.glColor4f(0.0, 1.0, 0.0, 1.0)
-        elif self.vec == Vector((0,0,1)) or self.vec == Vector((0,0,-1)):
-            bgl.glColor4f(0.0, 0.0, 1.0, 1.0)        
-        else:
-            bgl.glColor4f(0.0, 0.0, 0.0, 1.0)
-            
-        cos = self.vec_norm[0]
-        sen = self.vec_norm[1]
-        x_el = self.vec[2]
-        y_el = 1
-        x = amp
-        y = 0
-        z = 0
 
-        if self.bool_confirm:
-            bgl.glBegin(bgl.GL_LINE_STRIP)
-            try:
-                bgl.glVertex3f(*(self.r))
-                bgl.glVertex3f(*(self.track_point))
-            except:
-                pass
-            bgl.glEnd()
-
-        bgl.glDisable(bgl.GL_LINE_STIPPLE)   
-        
-        bgl.glBegin(bgl.GL_LINE_STRIP)        
-        bgl.glVertex3f(*(self.r)), bgl.glVertex3f(*(self.r + self.vec*amp))
-        bgl.glEnd()
-        
-        bgl.glBegin(bgl.GL_LINE_LOOP)
-        for i in range(self.n_points+1):
-            t = x
-            x = self.c*x-self.s*y
-            y = self.s*t+self.c*y
-            x2 = cos*x*x_el-sen*y*y_el
-            y2 = sen*x*x_el+cos*y*y_el
-            z = -x*self.vec_length
-            bgl.glVertex3f(*(self.r + Vector((x2,y2,z))))
-        bgl.glEnd()
-        
     # restore opengl defaults
     bgl.glDepthRange(0,1)
     bgl.glPointSize(1)
