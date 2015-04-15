@@ -668,6 +668,5 @@ def unregister():
     bpy.utils.unregister_class(MESH_OT_snap_utilities_line)
 
 if __name__ == "__main__":
-    global __name__
     __name__ = "mesh_snap_utilities_line"
     register()
