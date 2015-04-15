@@ -15,10 +15,6 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-# Contact for more information about the Addon:
-# Email:    germano.costa@ig.com.br
-# Twitter:  wii_mano @mano_wii
-
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
