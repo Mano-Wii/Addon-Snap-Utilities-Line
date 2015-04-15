@@ -22,11 +22,11 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (2, 7),
+    "version": (2, 9),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
-    "wiki_url" : "https://github.com/Mano-Wii/Snap-Utilities-Line/wiki",
+    "wiki_url" : "http://blenderartists.org/forum/showthread.php?363859-Addon-CAD-Snap-Utilities",
     "category": "Mesh"}
     
 import bpy, bgl, bmesh, mathutils, math
@@ -77,7 +77,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
     if bool_constrain == False and self.const != None:
         self.const = None
 
-    if isinstance(bm_geom, bmesh.types.BMVert):                
+    if isinstance(bm_geom, bmesh.types.BMVert):
         if not hasattr(self, 'bvert') or self.bvert != bm_geom or bool_update == True:
             self.bvert = bm_geom
             self.vert = obj_matrix_world * self.bvert.co
@@ -89,7 +89,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             #point = Vector([(self.vert[index] if vector_constrain==1 else self.const[index]) for index, vector_constrain in enumerate(vector_constrain)])
             point = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
             #point = vector_constrain.project(self.vert)
-            return point, 'OUT' #50% is 'OUT'
+            return point, 'CONSTRAIN' #50% is 'OUT'
         #else:
         return self.vert, 'VERT'
                 
@@ -134,17 +134,24 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 return point[0], 'EDGE'
 
     if isinstance(bm_geom, bmesh.types.BMFace):
+        if not hasattr(self, 'bface') or self.bface != bm_geom or bool_update == True:
+            self.bface = bm_geom
+            self.face_center = obj_matrix_world*bm_geom.calc_center_median()
+            self.face_normal = obj_matrix_world*bm_geom.normal
+            
+        orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2)
+        view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2)
+        end = orig + view_vector
+        point = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
+
         if bool_constrain == True:
             if self.const == None:
-                if depth != 1.0:
-                    self.const = unProject(self.region, self.rv3d, mcursor2)[3]
-                else:
-                    self.const = Vector(out_Location(self.rv3d, self.region, mcursor2))
-            point = mathutils.geometry.intersect_point_line(unProject(self.region, self.rv3d, mcursor2)[3], self.const, (self.const+vector_constrain))
-            return point[0], 'FACE'
+                self.const = point
+            point2 = mathutils.geometry.intersect_point_line(point, self.const, (self.const+vector_constrain))
+            return point2[0], 'FACE'
     
-        else:
-            return unProject(self.region, self.rv3d, mcursor2)[3], 'FACE'
+        #else:
+        return point, 'FACE'
     
     else:
         if bool_constrain == True:
@@ -158,7 +165,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
         else:
             result, object, matrix, location, normal = unProject(self.region, self.rv3d, mcursor2)
             if result:
-                return location, 'OUT'
+                return location, 'FACE'
             else:
                 return out_Location(self.rv3d, self.region, mcursor2), 'OUT'
 
@@ -260,7 +267,7 @@ def draw(self, obj, Bmesh, bm_geom, location, bool_merge):
 def draw_callback_px(self, context):
     # draw 3d point OpenGL in the 3D View
     bgl.glEnable(bgl.GL_BLEND)
-    if self.bool_constrain:
+    if self.bool_constrain or self.type == 'CONSTRAIN':
         if self.vector_constrain == Vector((1,0,0)):
             Color4f = (self.axis_x_color + (1.0,))
         elif self.vector_constrain == Vector((0,1,0)):
@@ -302,7 +309,76 @@ def draw_callback_px(self, context):
         bgl.glVertex3f(*vert_co)        
     bgl.glVertex3f(*self.location)        
     bgl.glEnd()
+        
+    if self.name == 'ROTATE':
+        bgl.glEnable(bgl.GL_BLEND)
+        bgl.glDepthRange(0,0.99999)
+            
+        amp=self.rv3d.view_distance/15
+            
+        if not hasattr(self, 'cache'):
+            self.cache = True
+            self.n_points = 12
+            seg_angle = 2*math.pi / self.n_points
+            self.c = math.cos(seg_angle)
+            self.s = math.sin(seg_angle)
+            
+        if not hasattr(self, 'vec') or self.vec != self.normal_face or self.bool_constrain:
+            if self.bool_confirm == False:
+                if self.bool_constrain:
+                    self.vec = self.vector_constrain.normalized()
+                else:
+                    self.vec = self.normal_face
+                self.vec_norm = Vector((self.vec[0], self.vec[1])).normalized()
+                if self.vec_norm[0]+self.vec[1] == 0:
+                    self.vec_norm = Vector((1, 0))
+                self.vec_length = Vector((self.vec[0], self.vec[1])).length
+        
+        if  self.bool_constrain:
+            bgl.glColor4f(*Color4f)
+        elif self.vec == Vector((1,0,0)) or self.vec == Vector((-1,0,0)):
+            bgl.glColor4f(1.0, 0.0, 0.0, 1.0)
+        elif self.vec == Vector((0,1,0)) or self.vec == Vector((0,-1,0)):
+            bgl.glColor4f(0.0, 1.0, 0.0, 1.0)
+        elif self.vec == Vector((0,0,1)) or self.vec == Vector((0,0,-1)):
+            bgl.glColor4f(0.0, 0.0, 1.0, 1.0)        
+        else:
+            bgl.glColor4f(0.0, 0.0, 0.0, 1.0)
+            
+        cos = self.vec_norm[0]
+        sen = self.vec_norm[1]
+        x_el = self.vec[2]
+        y_el = 1
+        x = amp
+        y = 0
+        z = 0
 
+        if self.bool_confirm:
+            bgl.glBegin(bgl.GL_LINE_STRIP)
+            try:
+                bgl.glVertex3f(*(self.r))
+                bgl.glVertex3f(*(self.track_point))
+            except:
+                pass
+            bgl.glEnd()
+
+        bgl.glDisable(bgl.GL_LINE_STIPPLE)   
+        
+        bgl.glBegin(bgl.GL_LINE_STRIP)        
+        bgl.glVertex3f(*(self.r)), bgl.glVertex3f(*(self.r + self.vec*amp))
+        bgl.glEnd()
+        
+        bgl.glBegin(bgl.GL_LINE_LOOP)
+        for i in range(self.n_points+1):
+            t = x
+            x = self.c*x-self.s*y
+            y = self.s*t+self.c*y
+            x2 = cos*x*x_el-sen*y*y_el
+            y2 = sen*x*x_el+cos*y*y_el
+            z = -x*self.vec_length
+            bgl.glVertex3f(*(self.r + Vector((x2,y2,z))))
+        bgl.glEnd()
+        
     # restore opengl defaults
     bgl.glDepthRange(0,1)
     bgl.glPointSize(1)
@@ -331,7 +407,8 @@ class PanelSnapUtilities(bpy.types.Panel) :
     @classmethod
     def poll(cls, context):
         return (context.object is not None and
-                context.object.type == 'MESH')
+                context.object.type == 'MESH')# and
+                #context.object.data.is_editmode)
 
     def draw(self, context):
         layout = self.layout
@@ -398,6 +475,7 @@ class CharMap:
         self.length_entered = length_entered
 
     def modal(self, context, event):
+        # Currently accessing event.ascii seems to crash Blender
         c = self.keys[event.type]
         if event.shift:
             if c == "8":
@@ -491,7 +569,11 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
         
         elif event.type == 'MOUSEMOVE':
             x, y = (event.mouse_region_x, event.mouse_region_y)
-            bpy.ops.view3d.select_or_deselect_all('INVOKE_DEFAULT')
+            if self.obj:
+                bpy.ops.mesh.select_all(action='DESELECT')
+                
+            bpy.ops.view3d.select(location=(x, y))
+
             if self.list_vertices_co != []:
                 bm_vert_to_perpendicular = self.list_vertices_co[-1]
             else:
@@ -501,7 +583,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 self.geom = self.bm.select_history[0]
             except: # IndexError or AttributeError:
                 self.geom = None
-                
+
             self.location, self.type = SnapUtilities(self, self.obj_matrix, self.geom, self.bool_update, bm_vert_to_perpendicular, (x, y), self.bool_constrain, self.vector_constrain)
             
         elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
@@ -518,7 +600,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     geom2 = None
             else:
                 geom2 = self.geom
-            bool_merge = self.type != 'OUT'
+            bool_merge = self.type not in {'OUT', 'FACE'}
             self.bool_constrain = False
             self.list_vertices_co = draw(self, self.obj, self.bm, geom2, Lsnap_3d, bool_merge)
             bpy.ops.ed.undo_push(message="Add an undo step *function may be moved*")
@@ -599,7 +681,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.axis_x_color = tuple(context.user_preferences.themes[0].user_interface.axis_x)
             self.axis_y_color = tuple(context.user_preferences.themes[0].user_interface.axis_y)
             self.axis_z_color = tuple(context.user_preferences.themes[0].user_interface.axis_z)
-            
+
             self.intersect = context.user_preferences.addons[__name__].preferences.intersect
 
             return {'RUNNING_MODAL'}
@@ -653,7 +735,6 @@ def register():
     bpy.utils.register_class(SnapAddonPreferences)
     bpy.utils.register_class(PanelSnapUtilities)
     bpy.utils.register_class(MESH_OT_snap_utilities_line)
-
 def unregister():
     bpy.utils.unregister_class(SnapAddonPreferences)
     bpy.utils.unregister_class(PanelSnapUtilities)
