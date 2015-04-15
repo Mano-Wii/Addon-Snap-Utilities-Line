@@ -120,7 +120,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             return point[0], 'EDGE'
 
         else:
-            if self.Pcent != None and abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
+            if abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
                 return self.po_cent, 'CENTER'
 
             elif hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor2[0]) < 10 and abs(self.Pperp[1]-mcursor2[1]) < 10:
