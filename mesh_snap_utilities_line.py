@@ -137,7 +137,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
         if not hasattr(self, 'bface') or self.bface != bm_geom or bool_update == True:
             self.bface = bm_geom
             self.face_center = obj_matrix_world*bm_geom.calc_center_median()
-            self.face_normal = bm_geom.normal*obj_matrix_world
+            self.face_normal = bm_geom.normal*obj_matrix_world.inverted()
             
         orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2)
         view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2)
@@ -149,9 +149,6 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 self.const = point
             point2 = mathutils.geometry.intersect_point_line(point, self.const, (self.const+vector_constrain))
             return point2[0], 'FACE'
-    
-        #else:
-        return point, 'FACE'
     
         #else:
         return point, 'FACE'
