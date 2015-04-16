@@ -33,18 +33,6 @@ import bpy, bgl, bmesh, mathutils, math
 from mathutils import Vector, Matrix
 from bpy_extras import view3d_utils
 
-def select_or_deselect_all(context, coords, deselect = True):
-    if deselect:
-        active_object = context.active_object
-
-        if active_object and active_object.mode == 'EDIT':
-            if active_object.type == 'MESH':
-                bpy.ops.mesh.select_all(action='DESELECT')
-        else:
-            bpy.ops.object.select_all(action='DESELECT')
-
-    return bpy.ops.view3d.select(location=coords)
-
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
     width_half = region.width / 2.0
