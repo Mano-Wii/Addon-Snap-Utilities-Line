@@ -322,8 +322,6 @@ def draw_callback_px(self, context):
         a = 'length: '+ str(round((self.list_vertices_co[-1]-self.location).length, 3))
     elif self.list_vertices_co != [] and self.length_entered != "":
         a = 'length: '+ self.length_entered
-    elif self.name == 'ROTATE' and self.length_entered != "":
-        a = 'angle: '+ self.length_entered + '°'
 
     context.area.header_text_set("hit: %.3f %.3f %.3f %s" % (self.location[0], self.location[1], self.location[2], a))
     
@@ -337,8 +335,7 @@ class PanelSnapUtilities(bpy.types.Panel) :
     @classmethod
     def poll(cls, context):
         return (context.object is not None and
-                context.object.type == 'MESH')# and
-                #context.object.data.is_editmode)
+                context.object.type == 'MESH')
 
     def draw(self, context):
         layout = self.layout
