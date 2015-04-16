@@ -1,4 +1,4 @@
-### BEGIN GPL LICENSE BLOCK #####
+﻿### BEGIN GPL LICENSE BLOCK #####
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -15,6 +15,10 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
+# Contact for more information about the Addon:
+# Email:    germano.costa@ig.com.br
+# Twitter:  wii_mano @mano_wii
+
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
@@ -28,6 +32,18 @@ bl_info = {
 import bpy, bgl, bmesh, mathutils, math
 from mathutils import Vector, Matrix
 from bpy_extras import view3d_utils
+
+def select_or_deselect_all(context, coords, deselect = True):
+    if deselect:
+        active_object = context.active_object
+
+        if active_object and active_object.mode == 'EDIT':
+            if active_object.type == 'MESH':
+                bpy.ops.mesh.select_all(action='DESELECT')
+        else:
+            bpy.ops.object.select_all(action='DESELECT')
+
+    return bpy.ops.view3d.select(location=coords)
 
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
@@ -139,7 +155,6 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
         view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2)
         end = orig + view_vector
         point = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
-
         if bool_constrain == True:
             if self.const == None:
                 self.const = point
@@ -192,7 +207,7 @@ def split_face(self, mesh, Bmesh, listverts, listedges, listfaces):
                 verts = [listverts[-2], listverts[-1]]
                 facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = verts)
                 bmesh.update_edit_mesh(mesh, tessface=True, destructive=True)
-                print(facesp)
+                #print(facesp)
             if not self.intersect or facesp['edges'] == []:
                 edge = Bmesh.edges.new([listverts[-1], listverts[-2]])
                 listedges.append(edge)
@@ -207,7 +222,7 @@ def split_face(self, mesh, Bmesh, listverts, listedges, listfaces):
                         bmesh.update_edit_mesh(mesh, tessface=True, destructive=True)
             listedges = []
 
-def draw(self, obj, Bmesh, bm_geom, location, bool_merge):
+def draw_line(self, obj, Bmesh, bm_geom, location, bool_merge):
     if not hasattr(self, 'list_vertices'):
         self.list_vertices = []
 
@@ -257,7 +272,7 @@ def draw(self, obj, Bmesh, bm_geom, location, bool_merge):
         self.list_vertices.append(vertices['vert'][0])
         self.list_faces.append(bm_geom)
         split_face(self, obj.data, Bmesh, self.list_vertices, self.list_edges, self.list_faces)
-        
+
     return [obj.matrix_world*a.co for a in self.list_vertices]
 
 def draw_callback_px(self, context):
@@ -285,7 +300,7 @@ def draw_callback_px(self, context):
             Color4f = self.center_color
         elif self.type == 'PERPENDICULAR':
             Color4f = self.perpendicular_color
-            
+
     bgl.glColor4f(*Color4f)
     bgl.glDepthRange(0,0)    
     bgl.glPointSize(10)    
@@ -305,7 +320,7 @@ def draw_callback_px(self, context):
         bgl.glVertex3f(*vert_co)        
     bgl.glVertex3f(*self.location)        
     bgl.glEnd()
-        
+
     # restore opengl defaults
     bgl.glDepthRange(0,1)
     bgl.glPointSize(1)
@@ -313,7 +328,7 @@ def draw_callback_px(self, context):
     bgl.glDisable(bgl.GL_BLEND)
     bgl.glDisable(bgl.GL_LINE_STIPPLE)
     bgl.glColor4f(0.0, 0.0, 0.0, 1.0)
-    
+
     a = ""
     if self.list_vertices_co != [] and self.length_entered == "":
         a = 'length: '+ str(round((self.list_vertices_co[-1]-self.location).length, 3))
@@ -340,7 +355,7 @@ class PanelSnapUtilities(bpy.types.Panel) :
     def draw(self, context):
         layout = self.layout
         TheCol = layout.column(align = True)
-        TheCol.operator("mesh.snap_utilities_line", icon="GREASEPENCIL")
+        TheCol.operator("mesh.snap_utilities_line", text = "Line", icon="GREASEPENCIL")
         
         addon_prefs = context.user_preferences.addons[__name__].preferences
         
@@ -422,11 +437,11 @@ class CharMap:
         return self.length_entered
 
 class Navigation:
-    keys = {
+    keys = [
         'MIDDLEMOUSE',
         'WHEELDOWNMOUSE',
         'WHEELUPMOUSE',
-        }
+        ]
 
     def __init__(self, rv3d, location):
         self.rv3d = rv3d
@@ -452,7 +467,7 @@ class Navigation:
 class MESH_OT_snap_utilities_line(bpy.types.Operator):
     """ Draw edges. Connect them to split faces."""
     bl_idname = "mesh.snap_utilities_line"
-    bl_label = "LINE"
+    bl_label = "Line Tool"
     bl_options = {'REGISTER', 'UNDO'}
     
     def modal(self, context, event):
@@ -529,7 +544,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 geom2 = self.geom
             bool_merge = self.type not in {'OUT', 'FACE'}
             self.bool_constrain = False
-            self.list_vertices_co = draw(self, self.obj, self.bm, geom2, Lsnap_3d, bool_merge)
+            self.list_vertices_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d, bool_merge)
             bpy.ops.ed.undo_push(message="Add an undo step *function may be moved*")
             
         elif event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'RELEASE':
@@ -539,7 +554,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     vector_h0_h1 = (self.location-self.list_vertices_co[-1]).normalized()
                     location = ((vector_h0_h1*text_value)+self.obj_matrix.inverted()*self.list_vertices_co[-1])
                     bool_merge = self.type != 'OUT'
-                    self.list_vertices_co = draw(self, self.obj, self.bm, self.geom, location, bool_merge)
+                    self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, location, bool_merge)
                     self.length_entered = ""
                 
                 except:# ValueError:
@@ -662,6 +677,7 @@ def register():
     bpy.utils.register_class(SnapAddonPreferences)
     bpy.utils.register_class(PanelSnapUtilities)
     bpy.utils.register_class(MESH_OT_snap_utilities_line)
+
 def unregister():
     bpy.utils.unregister_class(SnapAddonPreferences)
     bpy.utils.unregister_class(PanelSnapUtilities)
