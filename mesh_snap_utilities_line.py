@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (2, 9),
+    "version": (3, 0),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -110,7 +110,11 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
 
         if bool_constrain == True:
             if self.const == None:
-                self.const = self.po_cent
+                if vert_perp != None:
+                    self.const = vert_perp
+                else:
+                    self.const = self.po_cent
+
             point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
             if point == None:
                 orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
@@ -142,20 +146,26 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
         orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2)
         view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2)
         end = orig + view_vector
-        point = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
         if bool_constrain == True:
             if self.const == None:
-                self.const = point
-            point2 = mathutils.geometry.intersect_point_line(point, self.const, (self.const+vector_constrain))
-            return point2[0], 'FACE'
-    
+                if vert_perp != None:
+                    self.const = vert_perp
+                else:
+                    self.const = point
+            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
+            return point[0], 'FACE'
         #else:
+        point = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
         return point, 'FACE'
     
     else:
         if bool_constrain == True:
             if self.const == None:
-                self.const = out_Location(self.rv3d, self.region, mcursor2)
+                if vert_perp != None:
+                    self.const = vert_perp
+                else:
+                    self.const = out_Location(self.rv3d, self.region, mcursor2)
+
             orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
             view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
             end = orig + view_vector
@@ -467,6 +477,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
         if event.ctrl:
             if event.type == 'Z' and event.value == 'PRESS':
                 bpy.ops.ed.undo()
+                self.bool_constrain = False
                 self.list_vertices_co = []
                 self.list_vertices = []
                 self.list_edges = []
@@ -562,11 +573,12 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     bpy.ops.object.editmode_toggle()
                 return {'FINISHED'}
             else:
+                self.bool_constrain = False
                 self.list_vertices = []
                 self.list_vertices_co = []
                 self.list_faces = []
                 
-        return {'RUNNING_MODAL'} 
+        return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):        
         if context.space_data.type == 'VIEW_3D':
