@@ -538,7 +538,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     geom2 = None
             else:
                 geom2 = self.geom
-            bool_merge = self.type not in {'OUT', 'FACE'}
+            bool_merge = self.type in {'VERT', 'EDGE'}
             self.bool_constrain = False
             self.list_vertices_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d, bool_merge)
             bpy.ops.ed.undo_push(message="Add an undo step *function may be moved*")
