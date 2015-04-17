@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (3, 0),
+    "version": (2, 9),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -530,7 +530,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             snap_3d = self.location
             Lsnap_3d = self.obj_matrix.inverted()*snap_3d
             Snap_2d = location_3d_to_region_2d(self.region, self.rv3d, snap_3d)
-            if self.bool_constrain: # SELECT FIRST
+            if self.bool_constrain and isinstance(self.geom, bmesh.types.BMVert): # SELECT FIRST
                 bpy.ops.view3d.select(location=(int(Snap_2d[0]), int(Snap_2d[1])))
                 try:
                     geom2 = self.bm.select_history[0]
