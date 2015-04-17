@@ -124,11 +124,11 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             return point[0], 'EDGE'
 
         else:
-            if abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
-                return self.po_cent, 'CENTER'
-
-            elif hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor2[0]) < 10 and abs(self.Pperp[1]-mcursor2[1]) < 10:
+            if hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor2[0]) < 10 and abs(self.Pperp[1]-mcursor2[1]) < 10:
                 return self.po_perp, 'PERPENDICULAR'
+
+            elif abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
+                return self.po_cent, 'CENTER'
             
             else:
                 orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2)
