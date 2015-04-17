@@ -538,7 +538,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     geom2 = None
             else:
                 geom2 = self.geom
-            bool_merge = self.type in {'VERT', 'EDGE'}
+            bool_merge = self.type not in {'FACE', 'OUT'}
             self.bool_constrain = False
             self.list_vertices_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d, bool_merge)
             bpy.ops.ed.undo_push(message="Add an undo step *function may be moved*")
@@ -549,7 +549,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     text_value = eval(self.length_entered, math.__dict__)
                     vector_h0_h1 = (self.location-self.list_vertices_co[-1]).normalized()
                     location = ((vector_h0_h1*text_value)+self.obj_matrix.inverted()*self.list_vertices_co[-1])
-                    bool_merge = self.type in {'VERT', 'EDGE'}
+                    bool_merge = self.type not in {'FACE', 'OUT'}
                     self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, location, bool_merge)
                     self.length_entered = ""
                 
