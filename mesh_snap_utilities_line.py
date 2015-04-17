@@ -89,7 +89,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             #point = Vector([(self.vert[index] if vector_constrain==1 else self.const[index]) for index, vector_constrain in enumerate(vector_constrain)])
             point = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
             #point = vector_constrain.project(self.vert)
-            return point, 'CONSTRAIN' #50% is 'OUT'
+            return point, 'VERT' #50% is 'OUT'
         #else:
         return self.vert, 'VERT'
                 
@@ -170,7 +170,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
             end = orig + view_vector
             point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-            return point[0], 'CONSTRAIN'
+            return point[0], 'OUT'
         else:
             result, object, matrix, location, normal = unProject(self.region, self.rv3d, mcursor2)
             if result:
@@ -276,7 +276,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location, bool_merge):
 def draw_callback_px(self, context):
     # draw 3d point OpenGL in the 3D View
     bgl.glEnable(bgl.GL_BLEND)
-    if self.bool_constrain or self.type == 'CONSTRAIN':
+    if self.bool_constrain:
         if self.vector_constrain == Vector((1,0,0)):
             Color4f = (self.axis_x_color + (1.0,))
         elif self.vector_constrain == Vector((0,1,0)):
