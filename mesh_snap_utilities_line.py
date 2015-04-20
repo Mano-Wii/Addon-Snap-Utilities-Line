@@ -220,7 +220,7 @@ def split_face(self, mesh, Bmesh, listverts, listedges, listfaces):
                         bmesh.update_edit_mesh(mesh, tessface=True, destructive=True)
             listedges = []
 
-def draw_line(self, obj, Bmesh, bm_geom, location, bool_merge):
+def draw_line(self, obj, Bmesh, bm_geom, location):
     if not hasattr(self, 'list_vertices'):
         self.list_vertices = []
 
@@ -230,7 +230,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location, bool_merge):
     if not hasattr(self, 'list_faces'):
         self.list_faces = []
 
-    if bool_merge == False:
+    if bm_geom == None:
         vertices = (bmesh.ops.create_vert(Bmesh, co=(location)))
         self.list_vertices.append(vertices['vert'][0])
         split_face(self, obj.data, Bmesh, self.list_vertices, self.list_edges, self.list_faces)
@@ -252,14 +252,15 @@ def draw_line(self, obj, Bmesh, bm_geom, location, bool_merge):
         vector_p0_l = (bm_geom.verts[0].co-location)
         vector_p1_l = (bm_geom.verts[1].co-location)
         vector_p0_p1 = (bm_geom.verts[0].co-bm_geom.verts[1].co)
-        factor = vector_p0_l.length/bm_geom.calc_length()
-        if factor < 1 and vector_p1_l <  vector_p0_p1 and round(vector_p0_l.angle(vector_p1_l), 2) == 3.14: # contrain near                 
+
+        if round(vector_p0_l.angle(vector_p1_l), 2) == 3.14: # contrain near
+            factor = vector_p0_l.length/bm_geom.calc_length()
             vertex0 = bmesh.utils.edge_split(bm_geom, bm_geom.verts[0], factor)
             self.list_vertices.append(vertex0[1])
             self.list_edges.append(vertex0[0])
-                                
             split_face(self, obj.data, Bmesh ,self.list_vertices, self.list_edges, self.list_faces)
             self.list_edges = []
+
         else:
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
             self.list_vertices.append(vertices['vert'][0])
@@ -538,9 +539,8 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     geom2 = None
             else:
                 geom2 = self.geom
-            bool_merge = self.type not in {'FACE', 'OUT'}
             self.bool_constrain = False
-            self.list_vertices_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d, bool_merge)
+            self.list_vertices_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d)
             bpy.ops.ed.undo_push(message="Add an undo step *function may be moved*")
             
         elif event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'RELEASE':
@@ -549,8 +549,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     text_value = eval(self.length_entered, math.__dict__)
                     vector_h0_h1 = (self.location-self.list_vertices_co[-1]).normalized()
                     location = ((vector_h0_h1*text_value)+self.obj_matrix.inverted()*self.list_vertices_co[-1])
-                    bool_merge = self.type not in {'FACE', 'OUT'}
-                    self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, location, bool_merge)
+                    self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, location)
                     self.length_entered = ""
                 
                 except:# ValueError:
