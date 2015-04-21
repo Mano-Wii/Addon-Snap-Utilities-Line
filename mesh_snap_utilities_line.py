@@ -186,8 +186,8 @@ def get_isolated_edges(bmvert):
             linked.append(e)
     return linked
 
-def split_face(self, mesh, Bmesh, listverts, listedges, listfaces):
-    if len(listverts) >=2 and listverts[-1] not in [x for y in [a.verts[:] for a in listverts[-2].link_edges] for x in y if x != listverts[-2]]:
+def split_face(mesh, Bmesh, intersect, listverts, listedges, listfaces):
+    if len(listverts) >= 2 and listverts[-1] not in [x for y in [a.verts for a in listverts[-2].link_edges] for x in y if x != listverts[-2]]:
         if listverts[-2].link_faces[:] == []:
             if listfaces == []:
                 for face in listverts[-1].link_faces:
@@ -201,12 +201,12 @@ def split_face(self, mesh, Bmesh, listverts, listedges, listfaces):
         if listverts[-1] != listverts[-2]:
             facesp = {}
             facesp['edges'] = []
-            if self.intersect and listverts[-2].link_faces[:] != []:
+            if intersect and listverts[-2].link_faces[:] != []:
                 verts = [listverts[-2], listverts[-1]]
                 facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = verts)
                 bmesh.update_edit_mesh(mesh, tessface=True, destructive=True)
                 #print(facesp)
-            if not self.intersect or facesp['edges'] == []:
+            if not intersect or facesp['edges'] == []:
                 edge = Bmesh.edges.new([listverts[-1], listverts[-2]])
                 listedges.append(edge)
                 if listfaces == []:
@@ -218,7 +218,7 @@ def split_face(self, mesh, Bmesh, listverts, listedges, listfaces):
                     for face in list(set(listfaces)):
                         facesp = bmesh.utils.face_split_edgenet(face, list(set(listedges)))
                         bmesh.update_edit_mesh(mesh, tessface=True, destructive=True)
-            listedges = []
+            #listedges = []
 
 def draw_line(self, obj, Bmesh, bm_geom, location):
     if not hasattr(self, 'list_vertices'):
@@ -233,7 +233,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
     if bm_geom == None:
         vertices = (bmesh.ops.create_vert(Bmesh, co=(location)))
         self.list_vertices.append(vertices['vert'][0])
-        split_face(self, obj.data, Bmesh, self.list_vertices, self.list_edges, self.list_faces)
+        split_face(obj.data, Bmesh, self.intersect, self.list_vertices, self.list_edges, self.list_faces)
 
     elif isinstance(bm_geom, bmesh.types.BMVert):
         if (bm_geom.co - location).length < .01:
@@ -245,7 +245,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
             self.list_vertices.append(vertices['vert'][0])
             
-        split_face(self, obj.data, Bmesh, self.list_vertices, self.list_edges, self.list_faces)
+        split_face(obj.data, Bmesh, self.intersect, self.list_vertices, self.list_edges, self.list_faces)
         
     elif isinstance(bm_geom, bmesh.types.BMEdge):
         self.list_edges.append(bm_geom)
@@ -253,24 +253,24 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         vector_p1_l = (bm_geom.verts[1].co-location)
         vector_p0_p1 = (bm_geom.verts[0].co-bm_geom.verts[1].co)
 
-        if round(vector_p0_l.angle(vector_p1_l), 2) == 3.14: # contrain near
+        if round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
             factor = vector_p0_l.length/bm_geom.calc_length()
             vertex0 = bmesh.utils.edge_split(bm_geom, bm_geom.verts[0], factor)
             self.list_vertices.append(vertex0[1])
             self.list_edges.append(vertex0[0])
-            split_face(self, obj.data, Bmesh ,self.list_vertices, self.list_edges, self.list_faces)
+            split_face(obj.data, Bmesh ,self.intersect, self.list_vertices, self.list_edges, self.list_faces)
             self.list_edges = []
 
-        else:
+        else: # constrain point is near
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
             self.list_vertices.append(vertices['vert'][0])
-            split_face(self, obj.data, Bmesh, self.list_vertices, self.list_edges, self.list_faces)
+            split_face(obj.data, Bmesh, self.intersect, self.list_vertices, self.list_edges, self.list_faces)
 
     elif isinstance(bm_geom, bmesh.types.BMFace):
         vertices = (bmesh.ops.create_vert(Bmesh, co=(location)))
         self.list_vertices.append(vertices['vert'][0])
         self.list_faces.append(bm_geom)
-        split_face(self, obj.data, Bmesh, self.list_vertices, self.list_edges, self.list_faces)
+        split_face(obj.data, Bmesh, self.intersect, self.list_vertices, self.list_edges, self.list_faces)
 
     return [obj.matrix_world*a.co for a in self.list_vertices]
 
@@ -547,9 +547,10 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             if self.length_entered != "" and self.list_vertices_co != []:
                 try:
                     text_value = eval(self.length_entered, math.__dict__)
-                    vector_h0_h1 = (self.location-self.list_vertices_co[-1]).normalized()
-                    location = ((vector_h0_h1*text_value)+self.obj_matrix.inverted()*self.list_vertices_co[-1])
-                    self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, location)
+                    vector = (self.location-self.list_vertices_co[-1]).normalized()
+                    location = (self.list_vertices_co[-1]+(vector*text_value))
+                    G_location = self.obj_matrix.inverted()*location
+                    self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, G_location)
                     self.length_entered = ""
                 
                 except:# ValueError:
