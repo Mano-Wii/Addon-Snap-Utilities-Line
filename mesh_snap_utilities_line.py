@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (3, 0),
+    "version": (3, 1),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -55,12 +55,12 @@ def unProject(region, rv3d, mcursor):
     return result, object, matrix, location, normal
 
 def out_Location(rv3d, region, mcursor):
-    view_matrix = rv3d.view_matrix.transposed()
+    view_matrix = rv3d.view_matrix
     orig = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
     vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
-    v1 = Vector((int(view_matrix[0][0]*1.5),int(view_matrix[1][0]*1.5),int(view_matrix[2][0]*1.5)))
-    v2 = Vector((int(view_matrix[0][1]*1.5),int(view_matrix[1][1]*1.5),int(view_matrix[2][1]*1.5)))
-    
+    v1 = Vector((int(view_matrix[0][0]*1.5),int(view_matrix[0][1]*1.5),int(view_matrix[0][2]*1.5)))
+    v2 = Vector((int(view_matrix[1][0]*1.5),int(view_matrix[1][1]*1.5),int(view_matrix[1][2]*1.5)))
+
     hit = mathutils.geometry.intersect_ray_tri(Vector((1,0,0)), Vector((0,1,0)), Vector((0,0,0)), (vector), (orig), False)
     if hit == None:
         hit = mathutils.geometry.intersect_ray_tri(v1, v2, Vector((0,0,0)), (vector), (orig), False)        
