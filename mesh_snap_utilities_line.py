@@ -33,6 +33,13 @@ import bpy, bgl, bmesh, mathutils, math
 from mathutils import Vector, Matrix
 from bpy_extras import view3d_utils
 
+def is_between(a,b,c):
+   v = a - b
+   w = b - c
+   #dot = v.x*w.x + v.y*w.y
+   wedge = v.x*w.y - v.y*w.x
+   return wedge == 0 #and dot < 0
+
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
     width_half = region.width / 2.0
@@ -70,7 +77,7 @@ def out_Location(rv3d, region, mcursor):
         hit = Vector((0,0,0))
     return hit
 
-def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor2, bool_constrain, vector_constrain):
+def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain):
     if not hasattr(self, 'const'):
         self.const = None
 
@@ -89,7 +96,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             #point = Vector([(self.vert[index] if vector_constrain==1 else self.const[index]) for index, vector_constrain in enumerate(vector_constrain)])
             point = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
             #point = vector_constrain.project(self.vert)
-            return point, 'VERT' #50% is 'OUT'
+            return point, 'VERT' #or 'FACE' or 'OUT' or 'EDGE'
         #else:
         return self.vert, 'VERT'
                 
@@ -117,22 +124,22 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
 
             point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
             if point == None:
-                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
+                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor)
+                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor)
                 end = orig + view_vector
                 point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
             return point[0], 'EDGE'
 
         else:
-            if hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor2[0]) < 10 and abs(self.Pperp[1]-mcursor2[1]) < 10:
+            if hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor[0]) < 10 and abs(self.Pperp[1]-mcursor[1]) < 10:
                 return self.po_perp, 'PERPENDICULAR'
 
-            elif abs(self.Pcent[0]-mcursor2[0]) < 10 and abs(self.Pcent[1]-mcursor2[1]) < 10:
+            elif abs(self.Pcent[0]-mcursor[0]) < 10 and abs(self.Pcent[1]-mcursor[1]) < 10:
                 return self.po_cent, 'CENTER'
             
             else:
-                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2)
-                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2)
+                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor)
+                view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor)
                 end = orig + view_vector
                 point = mathutils.geometry.intersect_line_line(self.vert0, self.vert1, orig, end)
                 return point[0], 'EDGE'
@@ -143,8 +150,8 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
             self.face_center = obj_matrix_world*bm_geom.calc_center_median()
             self.face_normal = bm_geom.normal*obj_matrix_world.inverted()
             
-        orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2)
-        view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2)
+        orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor)
+        view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor)
         end = orig + view_vector
         if bool_constrain == True:
             if self.const == None:
@@ -164,19 +171,19 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 if vert_perp != None:
                     self.const = vert_perp
                 else:
-                    self.const = out_Location(self.rv3d, self.region, mcursor2)
+                    self.const = out_Location(self.rv3d, self.region, mcursor)
 
-            orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor2 )
-            view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor2 )
+            orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor)
+            view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor)
             end = orig + view_vector
             point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
             return point[0], 'OUT'
         else:
-            result, object, matrix, location, normal = unProject(self.region, self.rv3d, mcursor2)
+            result, object, matrix, location, normal = unProject(self.region, self.rv3d, mcursor)
             if result:
                 return location, 'FACE'
             else:
-                return out_Location(self.rv3d, self.region, mcursor2), 'OUT'
+                return out_Location(self.rv3d, self.region, mcursor), 'OUT'
 
 def get_isolated_edges(bmvert):
     linked = [c for c in bmvert.link_edges[:] if c.link_faces[:] == []]
@@ -253,7 +260,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         vector_p1_l = (bm_geom.verts[1].co-location)
         vector_p0_p1 = (bm_geom.verts[0].co-bm_geom.verts[1].co)
 
-        if round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
+        if is_between(bm_geom.verts[0].co,bm_geom.verts[1].co,location): #round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
             factor = vector_p0_l.length/bm_geom.calc_length()
             vertex0 = bmesh.utils.edge_split(bm_geom, bm_geom.verts[0], factor)
             self.list_vertices.append(vertex0[1])
