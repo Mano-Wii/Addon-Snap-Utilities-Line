@@ -33,13 +33,6 @@ import bpy, bgl, bmesh, mathutils, math
 from mathutils import Vector, Matrix
 from bpy_extras import view3d_utils
 
-def is_between(a,b,c):
-   v = a - b
-   w = b - c
-   #dot = v.x*w.x + v.y*w.y
-   wedge = v.x*w.y - v.y*w.x
-   return wedge == 0 #and dot < 0
-
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
     width_half = region.width / 2.0
@@ -259,8 +252,9 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         vector_p0_l = (bm_geom.verts[0].co-location)
         vector_p1_l = (bm_geom.verts[1].co-location)
         vector_p0_p1 = (bm_geom.verts[0].co-bm_geom.verts[1].co)
+        wedge = vector_p0_l.y*vector_p1_l.x - vector_p0_l.x*vector_p1_l.y
 
-        if is_between(bm_geom.verts[0].co,bm_geom.verts[1].co,location): #round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
+        if round(wedge, 4) == 0: # or round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:a
             factor = vector_p0_l.length/bm_geom.calc_length()
             vertex0 = bmesh.utils.edge_split(bm_geom, bm_geom.verts[0], factor)
             self.list_vertices.append(vertex0[1])
