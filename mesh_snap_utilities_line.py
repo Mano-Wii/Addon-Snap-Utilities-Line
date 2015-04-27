@@ -251,10 +251,9 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         self.list_edges.append(bm_geom)
         vector_p0_l = (bm_geom.verts[0].co-location)
         vector_p1_l = (bm_geom.verts[1].co-location)
-        vector_p0_p1 = (bm_geom.verts[0].co-bm_geom.verts[1].co)
         wedge = vector_p0_l.y*vector_p1_l.x - vector_p0_l.x*vector_p1_l.y
 
-        if round(wedge, 4) == 0: # or round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:a
+        if round(wedge, 4) == 0: # or round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
             factor = vector_p0_l.length/bm_geom.calc_length()
             vertex0 = bmesh.utils.edge_split(bm_geom, bm_geom.verts[0], factor)
             self.list_vertices.append(vertex0[1])
