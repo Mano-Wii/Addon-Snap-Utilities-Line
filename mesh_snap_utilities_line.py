@@ -171,7 +171,6 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                         v_dist = dist
                         location = v_co
                         type = 'VERT'
-
             except:
                 print("fail")
         else:
@@ -185,6 +184,7 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
                 else:
                     self.const = location
             if type == 'VERT':
+                self.vert = location
                 point = mathutils.geometry.intersect_point_line(location, self.const, (self.const+vector_constrain))
             else:
                 point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
@@ -291,7 +291,15 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
 def draw_callback_px(self, context):
     # draw 3d point OpenGL in the 3D View
     bgl.glEnable(bgl.GL_BLEND)
+
     if self.bool_constrain:
+        if hasattr(self, 'vert') and self.type == 'VERT':
+            bgl.glColor4f(1.0,1.0,1.0,0.5)
+            bgl.glDepthRange(0,0)
+            bgl.glPointSize(5)
+            bgl.glBegin(bgl.GL_POINTS)
+            bgl.glVertex3f(*self.vert)
+            bgl.glEnd()
         if self.vector_constrain == Vector((1,0,0)):
             Color4f = (self.axis_x_color + (1.0,))
         elif self.vector_constrain == Vector((0,1,0)):
@@ -320,10 +328,8 @@ def draw_callback_px(self, context):
     bgl.glBegin(bgl.GL_POINTS)
     bgl.glVertex3f(*self.location)
     bgl.glEnd()
-    bgl.glDisable(bgl.GL_BLEND)
 
     # draw 3d line OpenGL in the 3D View
-    bgl.glEnable(bgl.GL_BLEND)
     bgl.glDepthRange(0,0.9999)
     bgl.glColor4f(1.0, 0.8, 0.0, 1.0)    
     bgl.glLineWidth(2)    
