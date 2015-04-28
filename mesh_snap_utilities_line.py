@@ -500,13 +500,14 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     self.vector_constrain = (self.geom.verts[1].co-self.geom.verts[0].co)*self.obj_matrix.inverted()
                 else:
                     self.bool_constrain = False
+            self.bool_update = True
 
         elif event.type in CharMap.keys and event.value == 'PRESS':
             CharMap2 = CharMap(self.length_entered)
             self.length_entered = CharMap2.modal(context, event)
             #print(self.length_entered)
         
-        elif event.type == 'MOUSEMOVE':
+        if event.type == 'MOUSEMOVE' or self.bool_update:
             x, y = (event.mouse_region_x, event.mouse_region_y)
             if self.obj:
                 bpy.ops.mesh.select_all(action='DESELECT')
