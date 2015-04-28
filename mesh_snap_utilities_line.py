@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (3, 1),
+    "version": (3, 3),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -40,19 +40,6 @@ def location_3d_to_region_2d(region, rv3d, coord):
     return Vector((width_half + width_half * (prj.x / prj.w),
                    height_half + height_half * (prj.y / prj.w),
                    ))
-
-def unProject(region, rv3d, mcursor):
-    view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
-    ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
-    ray_target = ray_origin + (view_vector * 1000)    
-    scene = bpy.context.scene
-
-    # cast the ray
-    result, object, matrix, location, normal = scene.ray_cast(ray_origin, ray_target)
-    if location == None:
-        location = Vector((0,0,0))
-
-    return result, object, matrix, location, normal
 
 def out_Location(rv3d, region, mcursor):
     view_matrix = rv3d.view_matrix
@@ -159,24 +146,50 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
         return point, 'FACE'
     
     else:
+        orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor)
+        view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor)
+        end = orig + view_vector * 1000
+        scene = bpy.context.scene
+        result, object, matrix, location, normal = scene.ray_cast(orig, end)
+        if result:
+            type = 'FACE'
+            try:
+                # get the ray relative to the object
+                matrix_inv = matrix.inverted()
+                ray_origin_obj = matrix_inv * orig
+                ray_target_obj = matrix_inv * end
+                location, normal, face_index = object.ray_cast(ray_origin_obj, ray_target_obj)
+                location = matrix*location
+                verts = object.data.polygons[face_index].vertices
+                v_dist = 10
+
+                for i in verts:
+                    v_co = matrix*object.data.vertices[i].co
+                    v_2d = location_3d_to_region_2d(self.region, self.rv3d, v_co)
+                    dist = (Vector(mcursor)-v_2d).length
+                    if dist < v_dist:
+                        v_dist = dist
+                        location = v_co
+                        type = 'VERT'
+
+            except:
+                print("fail")
+        else:
+            location = out_Location(self.rv3d, self.region, mcursor)
+            type = 'OUT'
+
         if bool_constrain == True:
             if self.const == None:
                 if vert_perp != None:
                     self.const = vert_perp
                 else:
-                    self.const = out_Location(self.rv3d, self.region, mcursor)
-
-            orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mcursor)
-            view_vector = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mcursor)
-            end = orig + view_vector
-            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-            return point[0], 'OUT'
-        else:
-            result, object, matrix, location, normal = unProject(self.region, self.rv3d, mcursor)
-            if result:
-                return location, 'FACE'
+                    self.const = location
+            if type == 'VERT':
+                point = mathutils.geometry.intersect_point_line(location, self.const, (self.const+vector_constrain))
             else:
-                return out_Location(self.rv3d, self.region, mcursor), 'OUT'
+                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
+            location = point[0]
+        return location, type
 
 def get_isolated_edges(bmvert):
     linked = [c for c in bmvert.link_edges[:] if c.link_faces[:] == []]
@@ -260,6 +273,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
             self.list_edges.append(vertex0[0])
             split_face(obj.data, Bmesh ,self.intersect, self.list_vertices, self.list_edges, self.list_faces)
             self.list_edges = []
+            self.list_faces = []
 
         else: # constrain point is near
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
@@ -342,12 +356,12 @@ class PanelSnapUtilities(bpy.types.Panel) :
     #bl_context = "mesh_edit"
     bl_category = "Snap Utilities"
     bl_label = "snap utilities"
-    
+    '''
     @classmethod
     def poll(cls, context):
         return (context.object is not None and
                 context.object.type == 'MESH')
-
+    '''
     def draw(self, context):
         layout = self.layout
         TheCol = layout.column(align = True)
@@ -583,6 +597,17 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
     def invoke(self, context, event):        
         if context.space_data.type == 'VIEW_3D':
+            if context.mode == 'OBJECT':
+		
+                mesh = bpy.data.meshes.new("")
+                mesh.from_pydata([context.scene.cursor_location], [], [])
+                mesh.update()
+                obj = bpy.data.objects.new("", mesh)
+                context.scene.objects.link(obj)
+                bpy.ops.object.select_all(action = "DESELECT")
+                obj.select = True
+                context.scene.objects.active = obj
+        
             bgl.glEnable(bgl.GL_POINT_SMOOTH)
             self.is_editmode = bpy.context.object.data.is_editmode
             bpy.ops.object.mode_set(mode='EDIT')
