@@ -573,7 +573,8 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     G_location = self.obj_matrix.inverted()*location
                     self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, G_location)
                     self.length_entered = ""
-                
+                    self.bool_constrain = False
+
                 except:# ValueError:
                     self.report({'INFO'}, "Operation not supported yet")
         
