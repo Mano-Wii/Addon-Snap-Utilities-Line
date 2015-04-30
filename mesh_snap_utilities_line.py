@@ -604,7 +604,8 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
     def invoke(self, context, event):        
         if context.space_data.type == 'VIEW_3D':
-            if context.mode == 'OBJECT':
+            do_new_obj = context.user_preferences.addons[__name__].preferences.do_new_obj
+            if context.mode == 'OBJECT' and do_new_obj:
 		
                 mesh = bpy.data.meshes.new("")
                 mesh.from_pydata([context.scene.cursor_location], [], [])
@@ -616,7 +617,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 context.scene.objects.active = obj
         
             bgl.glEnable(bgl.GL_POINT_SMOOTH)
-            self.is_editmode = bpy.context.object.data.is_editmode
+            self.is_editmode = context.object.data.is_editmode
             bpy.ops.object.mode_set(mode='EDIT')
             context.space_data.use_occlude_geometry = True
 
@@ -671,6 +672,13 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
             description="intersects created line with the existing edges, even if the lines do not intersect.",
             default=True,
             )
+
+    do_new_obj = bpy.props.BoolProperty(
+            name="create a new object",
+            description="If have not a active object, or the active object is not in edit mode, it creates a new object.",
+            default=True,
+            )
+
     out_color = bpy.props.FloatVectorProperty(name="OUT", default=(0.0, 0.0, 0.0, 0.5), size=4, subtype="COLOR", min=0, max=1)
     face_color = bpy.props.FloatVectorProperty(name="FACE", default=(1.0, 0.8, 0.0, 1.0), size=4, subtype="COLOR", min=0, max=1)
     edge_color = bpy.props.FloatVectorProperty(name="EDGE", default=(0.0, 0.8, 1.0, 1.0), size=4, subtype="COLOR", min=0, max=1)
@@ -699,8 +707,9 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
         col = split.column()
         col.prop(self, "perpendicular_color")
         
-        layout.label(text="Line tool:")        
+        layout.label(text="Line tool:")
         layout.prop(self, "intersect")
+        layout.prop(self, "do_new_obj")
 
 def register():
     print('Addon', __name__, 'registered')
