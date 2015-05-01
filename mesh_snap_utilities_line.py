@@ -273,10 +273,14 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                             self.list_faces = []
             else:
                 facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = [V1, V2])
-                for edge in facesp['edges']:
+                if facesp['edges'] == []:
+                    edge = Bmesh.edges.new([V1, V2])
                     self.list_edges.append(edge)
+                else:   
+                    for edge in facesp['edges']:
+                        self.list_edges.append(edge)
 
-    bmesh.update_edit_mesh(obj.data, tessface=True, destructive=True)
+            bmesh.update_edit_mesh(obj.data, tessface=True, destructive=True)
     return [obj.matrix_world*a.co for a in self.list_vertices]
 
 def draw_callback_px(self, context):
