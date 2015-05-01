@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (3, 7),
+    "version": (3, 3),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -272,8 +272,9 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                         if len(facesp) > 2:
                             self.list_faces = []
             else:
-                facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = [V1, V2])
-                if facesp['edges'] == []:
+                if self.intersect:
+                    facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = [V1, V2])
+                if not self.intersect or facesp['edges'] == []:
                     edge = Bmesh.edges.new([V1, V2])
                     self.list_edges.append(edge)
                 else:   
