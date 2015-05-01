@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (3, 3),
+    "version": (3, 7),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -213,7 +213,8 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
 
     elif isinstance(bm_geom, bmesh.types.BMVert):
         if (bm_geom.co - location).length < .01:
-            self.list_vertices.append(bm_geom)
+            if self.list_vertices == [] or self.list_vertices[-1] != bm_geom:
+                self.list_vertices.append(bm_geom)
         else:
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
             self.list_vertices.append(vertices['vert'][0])
@@ -242,27 +243,35 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
     if len(self.list_vertices) >= 2:
         V1 = self.list_vertices[-2]
         V2 = self.list_vertices[-1]
-        if V1 != V2 and V2 not in [x for y in [a.verts for a in V1.link_edges] for x in y if x != V1]:
+        V2_link_verts = [x for y in [a.verts for a in V2.link_edges] for x in y if x != V2]
+        if V1 not in V2_link_verts:
             if V2.link_edges[:] == []:
                 edge = Bmesh.edges.new([V1, V2])
                 self.list_edges.append(edge)
-            elif V1.link_faces[:] == [] or V2.link_faces[:] == []:
-                edge = Bmesh.edges.new([V1, V2])
-                self.list_edges.append(edge)
-                if self.list_faces == []:
-                    if V1.link_faces[:] != []:
-                        Vfaces = V1.link_faces
-                        Vtest = V2.co
-                    elif V2.link_faces[:] != []:
-                        Vfaces = V2.link_faces
-                        Vtest = V1.co
-                    else:
-                        Vfaces = []
-                    for face in Vfaces:
-                        testface = bmesh.geometry.intersect_face_point(face, Vtest)
-                        if testface:
-                            self.list_faces.append(face)
+            else:
+                face = [x for x in V2.link_faces[:] if x in V1.link_faces[:]]
+                if face != [] and self.list_faces == []:
+                    print(face)
+                    self.list_faces = face
+                    
+                elif V1.link_faces[:] == [] or V2.link_faces[:] == []:
+                    if self.list_faces == []:
+                        if V1.link_faces[:] != []:
+                            Vfaces = V1.link_faces
+                            Vtest = V2.co
+                        elif V2.link_faces[:] != []:
+                            Vfaces = V2.link_faces
+                            Vtest = V1.co
+                        else:
+                            Vfaces = []
+                        for face in Vfaces:
+                            testface = bmesh.geometry.intersect_face_point(face, Vtest)
+                            if testface:
+                                self.list_faces.append(face)
+
                 if self.list_faces != []:
+                    edge = Bmesh.edges.new([V1, V2])
+                    self.list_edges.append(edge)
                     ed_list = self.list_edges.copy()
                     for edge in get_isolated_edges(V2):
                         if edge not in ed_list:
@@ -271,17 +280,19 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                         facesp = bmesh.utils.face_split_edgenet(face, list(set(ed_list)))
                         if len(facesp) > 2:
                             self.list_faces = []
-            else:
-                if self.intersect:
-                    facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = [V1, V2])
-                if not self.intersect or facesp['edges'] == []:
-                    edge = Bmesh.edges.new([V1, V2])
-                    self.list_edges.append(edge)
-                else:   
-                    for edge in facesp['edges']:
+                else:
+                    if self.intersect:
+                        facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = [V1, V2])
+                    if not self.intersect or facesp['edges'] == []:
+                        edge = Bmesh.edges.new([V1, V2])
                         self.list_edges.append(edge)
+                    else:   
+                        for edge in facesp['edges']:
+                            self.list_edges.append(edge)
+                bmesh.update_edit_mesh(obj.data, tessface=True, destructive=True)
+        #else:
+            #print('create face')
 
-            bmesh.update_edit_mesh(obj.data, tessface=True, destructive=True)
     return [obj.matrix_world*a.co for a in self.list_vertices]
 
 def draw_callback_px(self, context):
