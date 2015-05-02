@@ -55,7 +55,7 @@ def out_Location(rv3d, region, orig, vector):
         hit = Vector((0,0,0))
     return hit
 
-def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, rv3d, region):
+def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, rv3d, region, outer_verts):
     if not hasattr(self, 'const'):
         self.const = None
 
@@ -151,26 +151,27 @@ def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcurs
         result, object, matrix, location, normal = scene.ray_cast(orig, end)
         if result:
             type = 'FACE'
-            try:
-                # get the ray relative to the object
-                matrix_inv = matrix.inverted()
-                ray_origin_obj = matrix_inv * orig
-                ray_target_obj = matrix_inv * end
-                location, normal, face_index = object.ray_cast(ray_origin_obj, ray_target_obj)
-                location = matrix*location
-                verts = object.data.polygons[face_index].vertices
-                v_dist = 10
+            if outer_verts:
+                try:
+                    # get the ray relative to the object
+                    matrix_inv = matrix.inverted()
+                    ray_origin_obj = matrix_inv * orig
+                    ray_target_obj = matrix_inv * end
+                    location, normal, face_index = object.ray_cast(ray_origin_obj, ray_target_obj)
+                    location = matrix*location
+                    verts = object.data.polygons[face_index].vertices
+                    v_dist = 10
 
-                for i in verts:
-                    v_co = matrix*object.data.vertices[i].co
-                    v_2d = location_3d_to_region_2d(region, rv3d, v_co)
-                    dist = (Vector(mcursor)-v_2d).length
-                    if dist < v_dist:
-                        v_dist = dist
-                        location = v_co
-                        type = 'VERT'
-            except:
-                print("fail")
+                    for i in verts:
+                        v_co = matrix*object.data.vertices[i].co
+                        v_2d = location_3d_to_region_2d(region, rv3d, v_co)
+                        dist = (Vector(mcursor)-v_2d).length
+                        if dist < v_dist:
+                            v_dist = dist
+                            location = v_co
+                            type = 'VERT'
+                except:
+                    print("fail")
         else:
             location = out_Location(rv3d, region, orig, view_vector)
             type = 'OUT'
@@ -240,18 +241,22 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         vertices = (bmesh.ops.create_vert(Bmesh, co=(location)))
         self.list_vertices.append(vertices['vert'][0])
     
+    # draw, split and create face
     if len(self.list_vertices) >= 2:
         V1 = self.list_vertices[-2]
         V2 = self.list_vertices[-1]
-        V2_link_verts = [x for y in [a.verts for a in V2.link_edges] for x in y if x != V2]
-        if V1 not in V2_link_verts:
+        #V2_link_verts = [x for y in [a.verts for a in V2.link_edges] for x in y if x != V2]
+        for edge in V2.link_edges:
+            if V1 in edge.verts:
+                self.list_edges.append(edge)
+                break
+        else: #if V1 not in V2_link_verts:
             if V2.link_edges[:] == []:
                 edge = Bmesh.edges.new([V1, V2])
                 self.list_edges.append(edge)
             else:
                 face = [x for x in V2.link_faces[:] if x in V1.link_faces[:]]
-                if face != [] and self.list_faces == []:
-                    print(face)
+                if face != []:# and self.list_faces == []:
                     self.list_faces = face
                     
                 elif V1.link_faces[:] == [] or V2.link_faces[:] == []:
@@ -272,14 +277,10 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                 if self.list_faces != []:
                     edge = Bmesh.edges.new([V1, V2])
                     self.list_edges.append(edge)
-                    ed_list = self.list_edges.copy()
-                    for edge in get_isolated_edges(V2):
-                        if edge not in ed_list:
-                            ed_list.append(edge)
+                    ed_list = get_isolated_edges(V2)
                     for face in list(set(self.list_faces)):
                         facesp = bmesh.utils.face_split_edgenet(face, list(set(ed_list)))
-                        if len(facesp) > 2:
-                            self.list_faces = []
+                        self.list_faces = []
                 else:
                     if self.intersect:
                         facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = [V1, V2])
@@ -290,8 +291,21 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                         for edge in facesp['edges']:
                             self.list_edges.append(edge)
                 bmesh.update_edit_mesh(obj.data, tessface=True, destructive=True)
-        #else:
-            #print('create face')
+
+        # create face
+        if self.create_face:
+            ed_list = self.list_edges.copy()
+            for edge in V2.link_edges:
+                for vert in edge.verts:
+                    if vert in self.list_vertices:
+                        ed_list.append(edge)
+                        for edge in get_isolated_edges(V2):
+                            if edge not in ed_list:
+                                ed_list.append(edge)
+                        bmesh.ops.edgenet_fill(Bmesh, edges = list(set(ed_list)))
+                        bmesh.update_edit_mesh(obj.data, tessface=True, destructive=True)
+                        break
+            #print('face created')
 
     return [obj.matrix_world*a.co for a in self.list_vertices]
 
@@ -376,6 +390,7 @@ class PanelSnapUtilities(bpy.types.Panel) :
                 context.object.type == 'MESH')
     '''
     def draw(self, context):
+        scene = context.scene
         layout = self.layout
         TheCol = layout.column(align = True)
         TheCol.operator("mesh.snap_utilities_line", text = "Line", icon="GREASEPENCIL")
@@ -383,8 +398,20 @@ class PanelSnapUtilities(bpy.types.Panel) :
         addon_prefs = context.user_preferences.addons[__name__].preferences
         
         box = layout.box()
-        row = box.row()
-        row.prop(addon_prefs, "intersect")
+        if not scene.expand_snap_settings:
+            # expand button
+            box.prop(scene, "expand_snap_settings", icon="TRIA_RIGHT", icon_only=True,
+                text="Settings:", emboss=False)
+        else:
+            # expand button
+            box.prop(scene, "expand_snap_settings", icon="TRIA_DOWN", icon_only=True,
+                text="Settings:", emboss=False) # icon_only broken?
+            box.label(text="Snap Items:")
+            box.prop(addon_prefs, "outer_verts")
+            box.label(text="Line Tool:")
+            box.prop(addon_prefs, "intersect")
+            box.prop(addon_prefs, "create_face")
+            box.prop(addon_prefs, "create_new_obj")
 
 class Constrain:
     keys = {
@@ -550,8 +577,10 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 self.geom = self.bm.select_history[0]
             except: # IndexError or AttributeError:
                 self.geom = None
+            
+            outer_verts = self.outer_verts and not self.keytab
 
-            self.location, self.type = SnapUtilities(self, self.obj_matrix, self.geom, self.bool_update, bm_vert_to_perpendicular, (x, y), self.bool_constrain, self.vector_constrain, self.rv3d, self.region)
+            self.location, self.type = SnapUtilities(self, self.obj_matrix, self.geom, self.bool_update, bm_vert_to_perpendicular, (x, y), self.bool_constrain, self.vector_constrain, self.rv3d, self.region, outer_verts)
             
         elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             #if event.value == 'PRESS':
@@ -611,8 +640,8 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
     def invoke(self, context, event):        
         if context.space_data.type == 'VIEW_3D':
-            do_new_obj = context.user_preferences.addons[__name__].preferences.do_new_obj
-            if context.mode == 'OBJECT' and do_new_obj:
+            create_new_obj = context.user_preferences.addons[__name__].preferences.create_new_obj
+            if context.mode == 'OBJECT' and create_new_obj:
 		
                 mesh = bpy.data.meshes.new("")
                 mesh.from_pydata([context.scene.cursor_location], [], [])
@@ -662,7 +691,9 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.axis_y_color = tuple(context.user_preferences.themes[0].user_interface.axis_y)
             self.axis_z_color = tuple(context.user_preferences.themes[0].user_interface.axis_z)
 
+            self.create_face = context.user_preferences.addons[__name__].preferences.create_face
             self.intersect = context.user_preferences.addons[__name__].preferences.intersect
+            self.outer_verts = context.user_preferences.addons[__name__].preferences.outer_verts
 
             return {'RUNNING_MODAL'}
         else:
@@ -675,14 +706,26 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
     
     intersect = bpy.props.BoolProperty(
-            name="intersect",
+            name="Intersect",
             description="intersects created line with the existing edges, even if the lines do not intersect.",
             default=True,
             )
 
-    do_new_obj = bpy.props.BoolProperty(
-            name="create a new object",
+    create_new_obj = bpy.props.BoolProperty(
+            name="Create a new object",
             description="If have not a active object, or the active object is not in edit mode, it creates a new object.",
+            default=True,
+            )
+
+    create_face = bpy.props.BoolProperty(
+            name="Create faces",
+            description="Create faces defined by enclosed edges.",
+            default=True,
+            )
+            
+    outer_verts = bpy.props.BoolProperty(
+            name="Snap to outer vertices",
+            description="The vertices of the objects are not activated also snapped.",
             default=True,
             )
 
@@ -713,21 +756,35 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
         col.prop(self, "center_color")
         col = split.column()
         col.prop(self, "perpendicular_color")
-        
-        layout.label(text="Line tool:")
-        layout.prop(self, "intersect")
-        layout.prop(self, "do_new_obj")
+
+        row = layout.row()
+
+        col = row.column()
+        col.label(text="Snap Items:")
+        col.prop(self, "outer_verts")
+
+        row.separator()
+
+        col = row.column()
+        col.label(text="Line Tool:")
+        col.prop(self, "intersect")
+        col.prop(self, "create_face")
+        col.prop(self, "create_new_obj")
 
 def register():
     print('Addon', __name__, 'registered')
     bpy.utils.register_class(SnapAddonPreferences)
     bpy.utils.register_class(PanelSnapUtilities)
     bpy.utils.register_class(MESH_OT_snap_utilities_line)
+    bpy.types.Scene.expand_snap_settings = bpy.props.BoolProperty(name="Expand",
+            description="Expand, to display all icons at once",
+            default=False)
 
 def unregister():
     bpy.utils.unregister_class(SnapAddonPreferences)
     bpy.utils.unregister_class(PanelSnapUtilities)
     bpy.utils.unregister_class(MESH_OT_snap_utilities_line)
+    del bpy.types.Scene.expand_snap_settings
 
 if __name__ == "__main__":
     __name__ = "mesh_snap_utilities_line"
