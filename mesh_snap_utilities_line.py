@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (3, 7),
+    "version": (3, 9),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -714,13 +714,13 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
     create_new_obj = bpy.props.BoolProperty(
             name="Create a new object",
             description="If have not a active object, or the active object is not in edit mode, it creates a new object.",
-            default=True,
+            default=False,
             )
 
     create_face = bpy.props.BoolProperty(
             name="Create faces",
             description="Create faces defined by enclosed edges.",
-            default=True,
+            default=False,
             )
             
     outer_verts = bpy.props.BoolProperty(
