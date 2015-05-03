@@ -437,7 +437,6 @@ class PanelSnapUtilities(bpy.types.Panel) :
                 context.object.type == 'MESH')
     '''
     def draw(self, context):
-        scene = context.scene
         layout = self.layout
         TheCol = layout.column(align = True)
         TheCol.operator("mesh.snap_utilities_line", text = "Line", icon="GREASEPENCIL")
@@ -445,13 +444,13 @@ class PanelSnapUtilities(bpy.types.Panel) :
         addon_prefs = context.user_preferences.addons[__name__].preferences
         
         box = layout.box()
-        if not scene.expand_snap_settings:
+        if not addon_prefs.expand_snap_settings:
             # expand button
-            box.prop(scene, "expand_snap_settings", icon="TRIA_RIGHT", icon_only=True,
+            box.prop(addon_prefs, "expand_snap_settings", icon="TRIA_RIGHT", icon_only=True,
                 text="Settings:", emboss=False)
         else:
             # expand button
-            box.prop(scene, "expand_snap_settings", icon="TRIA_DOWN", icon_only=True,
+            box.prop(addon_prefs, "expand_snap_settings", icon="TRIA_DOWN", icon_only=True,
                 text="Settings:", emboss=False) # icon_only broken?
             box.label(text="Snap Items:")
             box.prop(addon_prefs, "outer_verts")
@@ -740,26 +739,27 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
     intersect = bpy.props.BoolProperty(
             name="Intersect",
             description="intersects created line with the existing edges, even if the lines do not intersect.",
-            default=True,
-            )
+            default=True)
 
     create_new_obj = bpy.props.BoolProperty(
             name="Create a new object",
             description="If have not a active object, or the active object is not in edit mode, it creates a new object.",
-            default=False,
-            )
+            default=False)
 
     create_face = bpy.props.BoolProperty(
             name="Create faces",
             description="Create faces defined by enclosed edges.",
-            default=False,
-            )
+            default=False)
             
     outer_verts = bpy.props.BoolProperty(
             name="Snap to outer vertices",
             description="The vertices of the objects are not activated also snapped.",
-            default=True,
-            )
+            default=True)
+            
+    expand_snap_settings = bpy.props.BoolProperty(
+            name="Expand",
+            description="Expand, to display the settings",
+            default=False)
 
     out_color = bpy.props.FloatVectorProperty(name="OUT", default=(0.0, 0.0, 0.0, 0.5), size=4, subtype="COLOR", min=0, max=1)
     face_color = bpy.props.FloatVectorProperty(name="FACE", default=(1.0, 0.8, 0.0, 1.0), size=4, subtype="COLOR", min=0, max=1)
@@ -808,15 +808,11 @@ def register():
     bpy.utils.register_class(SnapAddonPreferences)
     bpy.utils.register_class(PanelSnapUtilities)
     bpy.utils.register_class(MESH_OT_snap_utilities_line)
-    bpy.types.Scene.expand_snap_settings = bpy.props.BoolProperty(name="Expand",
-            description="Expand, to display all icons at once",
-            default=False)
 
 def unregister():
     bpy.utils.unregister_class(SnapAddonPreferences)
     bpy.utils.unregister_class(PanelSnapUtilities)
     bpy.utils.unregister_class(MESH_OT_snap_utilities_line)
-    del bpy.types.Scene.expand_snap_settings
 
 if __name__ == "__main__":
     __name__ = "mesh_snap_utilities_line"
