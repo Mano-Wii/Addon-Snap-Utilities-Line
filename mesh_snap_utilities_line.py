@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (3, 9),
+    "version": (4, 0),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -30,8 +30,53 @@ bl_info = {
     "category": "Mesh"}
     
 import bpy, bgl, bmesh, mathutils, math
+#from space_view3d_panel_measure import getUnitsInfo, convertDistance
 from mathutils import Vector, Matrix
 from bpy_extras import view3d_utils
+
+def getUnitsInfo():
+        scale = bpy.context.scene.unit_settings.scale_length
+        unit_system = bpy.context.scene.unit_settings.system
+        separate_units = bpy.context.scene.unit_settings.use_separate
+        if unit_system == 'METRIC':
+                scale_steps = ((1000, 'km'), (1, 'm'), (1 / 100, 'cm'),
+                    (1 / 1000, 'mm'), (1 / 1000000, '\u00b5m'))
+        elif unit_system == 'IMPERIAL':
+                scale_steps = ((5280, 'mi'), (1, '\''),
+                    (1 / 12, '"'), (1 / 12000, 'thou'))
+                scale /= 0.3048  # BU to feet
+        else:
+                scale_steps = ((1, ' BU'),)
+                separate_units = False
+
+        return (scale, scale_steps, separate_units)
+    
+def convertDistance(val, units_info):
+        scale, scale_steps, separate_units = units_info
+        sval = val * scale
+        idx = 0
+        while idx < len(scale_steps) - 1:
+                if sval >= scale_steps[idx][0]:
+                        break
+                idx += 1
+        factor, suffix = scale_steps[idx]
+        sval /= factor
+        if not separate_units or idx == len(scale_steps) - 1:
+                dval = str(round(sval, PRECISION)) + suffix
+        else:
+                ival = int(sval)
+                dval = str(round(ival, PRECISION)) + suffix
+                fval = sval - ival
+                idx += 1
+                while idx < len(scale_steps):
+                        fval *= scale_steps[idx - 1][0] / scale_steps[idx][0]
+                        if fval >= 1:
+                                dval += ' ' \
+                                    + ("%.1f" % fval) \
+                                    + scale_steps[idx][1]
+                                break
+                        idx += 1
+        return dval
 
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
@@ -371,7 +416,9 @@ def draw_callback_px(self, context):
 
     a = ""
     if self.list_vertices_co != [] and self.length_entered == "":
-        a = 'length: '+ str(round((self.list_vertices_co[-1]-self.location).length, 3))
+        length = (self.list_vertices_co[-1]-self.location).length
+        length = convertDistance(length, self.uinfo)
+        a = 'length: '+ length
     elif self.list_vertices_co != [] and self.length_entered != "":
         a = 'length: '+ self.length_entered
 
@@ -443,46 +490,24 @@ class Constrain:
         return self.bool_constrain, self.vector_constrain
     
 class CharMap:
-    keys = {
-        'PERIOD':".", 'NUMPAD_PERIOD':".",
-        'MINUS':"-", 'NUMPAD_MINUS':"-",
-        'EQUAL':"+", 'NUMPAD_PLUS':"+",
-        'ONE':"1", 'NUMPAD_1':"1",
-        'TWO':"2", 'NUMPAD_2':"2",
-        'THREE':"3", 'NUMPAD_3':"3",
-        'FOUR':"4", 'NUMPAD_4':"4",
-        'FIVE':"5", 'NUMPAD_5':"5",
-        'SIX':"6", 'NUMPAD_6':"6",
-        'SEVEN':"7", 'NUMPAD_7':"7",
-        'EIGHT':"8", 'NUMPAD_8':"8",
-        'NINE':"9", 'NUMPAD_9':"9",
-        'ZERO':"0", 'NUMPAD_0':"0",
-        'SPACE':" ",
-        'SLASH':"/", 'NUMPAD_SLASH':"/",
-        'NUMPAD_ASTERIX':"*",
-        'BACK_SPACE':"", 'DEL':""
+    ascii = {
+        ".", "-", "+", "1", "2", "3",
+        "4", "5", "6", "7", "8", "9", "0",
+        " ", "/", "*", "'", "\""
+        #"="
+        }
+    type = {
+        'BACK_SPACE', 'DEL'
         }
 
     def __init__(self, length_entered = ""):
         self.length_entered = length_entered
 
     def modal(self, context, event):
-        # Currently accessing event.ascii seems to crash Blender
-        c = self.keys[event.type]
-        if event.shift:
-            if c == "8":
-                c = "*"
-            elif c == "5":
-                c = "%"
-            elif c == "9":
-                c = "("
-            elif c == "0":
-                c = ")"
-
-        if event.value == 'PRESS':
-            self.length_entered += c
-            if event.type in {'BACK_SPACE', 'DEL'} and len(self.length_entered) >= 1:
-                self.length_entered = self.length_entered[:-1]
+        c = event.ascii
+        self.length_entered += c
+        if event.type in self.type and len(self.length_entered) >= 1:
+            self.length_entered = self.length_entered[:-1]
 
         return self.length_entered
 
@@ -523,12 +548,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
     def modal(self, context, event):
         if context.area:
             context.area.tag_redraw()
-            if self.rv3d.view_matrix != self.rotMat:
-                self.rotMat = self.rv3d.view_matrix
-                self.bool_update = True
-            else:
-                self.bool_update = False
-                
+
         if event.ctrl:
             if event.type == 'Z' and event.value == 'PRESS':
                 bpy.ops.ed.undo()
@@ -556,12 +576,13 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     self.bool_constrain = False
             self.bool_update = True
 
-        elif event.type in CharMap.keys and event.value == 'PRESS':
-            CharMap2 = CharMap(self.length_entered)
-            self.length_entered = CharMap2.modal(context, event)
-            #print(self.length_entered)
-        
         if event.type == 'MOUSEMOVE' or self.bool_update:
+            if self.rv3d.view_matrix != self.rotMat:
+                self.rotMat = self.rv3d.view_matrix
+                self.bool_update = True
+            else:
+                self.bool_update = False
+
             x, y = (event.mouse_region_x, event.mouse_region_y)
             if self.obj:
                 bpy.ops.mesh.select_all(action='DESELECT')
@@ -580,61 +601,71 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             
             outer_verts = self.outer_verts and not self.keytab
 
-            self.location, self.type = SnapUtilities(self, self.obj_matrix, self.geom, self.bool_update, bm_vert_to_perpendicular, (x, y), self.bool_constrain, self.vector_constrain, self.rv3d, self.region, outer_verts)
-            
-        elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            #if event.value == 'PRESS':
-            # SNAP 2D
-            snap_3d = self.location
-            Lsnap_3d = self.obj_matrix.inverted()*snap_3d
-            Snap_2d = location_3d_to_region_2d(self.region, self.rv3d, snap_3d)
-            if self.bool_constrain and isinstance(self.geom, bmesh.types.BMVert): # SELECT FIRST
-                bpy.ops.view3d.select(location=(int(Snap_2d[0]), int(Snap_2d[1])))
-                try:
-                    geom2 = self.bm.select_history[0]
-                except: # IndexError or AttributeError:
-                    geom2 = None
-            else:
-                geom2 = self.geom
-            self.bool_constrain = False
-            self.list_vertices_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d)
-            bpy.ops.ed.undo_push(message="Add an undo step *function may be moved*")
-            
-        elif event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'RELEASE':
-            if self.length_entered != "" and self.list_vertices_co != []:
-                try:
-                    text_value = eval(self.length_entered, math.__dict__)
-                    vector = (self.location-self.list_vertices_co[-1]).normalized()
-                    location = (self.list_vertices_co[-1]+(vector*text_value))
-                    G_location = self.obj_matrix.inverted()*location
-                    self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, G_location)
-                    self.length_entered = ""
-                    self.bool_constrain = False
+            self.location, self.type = SnapUtilities(self, self.obj_matrix, self.geom, 
+                self.bool_update, bm_vert_to_perpendicular, (x, y), self.bool_constrain, 
+                self.vector_constrain, self.rv3d, self.region, outer_verts)
 
-                except:# ValueError:
-                    self.report({'INFO'}, "Operation not supported yet")
-        
-        elif event.type == 'TAB' and event.value == 'PRESS':
-            self.keytab = self.keytab == False
-            if self.keytab:            
-                context.tool_settings.mesh_select_mode = (False, False, True)
-            else:
-                context.tool_settings.mesh_select_mode = (True, True, True)
-            
-        elif event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'RELEASE':
-            if self.list_vertices_co == [] or event.type == 'ESC':                
-                bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
-                context.tool_settings.mesh_select_mode = self.select_mode
-                context.area.header_text_set()
-                context.user_preferences.view.use_rotate_around_active = self.use_rotate_around_active
-                if not self.is_editmode:
-                    bpy.ops.object.editmode_toggle()
-                return {'FINISHED'}
-            else:
+        elif event.value == 'PRESS':
+            if event.ascii in CharMap.ascii or event.type in CharMap.type:
+                CharMap2 = CharMap(self.length_entered)
+                self.length_entered = CharMap2.modal(context, event)
+                #print(self.length_entered)
+                
+            elif event.type == 'LEFTMOUSE':
+                #if event.value == 'PRESS':
+                # SNAP 2D
+                snap_3d = self.location
+                Lsnap_3d = self.obj_matrix.inverted()*snap_3d
+                Snap_2d = location_3d_to_region_2d(self.region, self.rv3d, snap_3d)
+                if self.bool_constrain and isinstance(self.geom, bmesh.types.BMVert): # SELECT FIRST
+                    bpy.ops.view3d.select(location=(int(Snap_2d[0]), int(Snap_2d[1])))
+                    try:
+                        geom2 = self.bm.select_history[0]
+                    except: # IndexError or AttributeError:
+                        geom2 = None
+                else:
+                    geom2 = self.geom
                 self.bool_constrain = False
-                self.list_vertices = []
-                self.list_vertices_co = []
-                self.list_faces = []
+                self.list_vertices_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d)
+                bpy.ops.ed.undo_push(message="Add an undo step *function may be moved*")
+
+            elif event.type == 'TAB':
+                self.keytab = self.keytab == False
+                if self.keytab:            
+                    context.tool_settings.mesh_select_mode = (False, False, True)
+                else:
+                    context.tool_settings.mesh_select_mode = (True, True, True)
+
+        elif event.value == 'RELEASE':
+            if event.type in {'RET', 'NUMPAD_ENTER'}:
+                if self.length_entered != "" and self.list_vertices_co != []:
+                    try:
+                        unit_system = context.scene.unit_settings.system
+                        text_value = bpy.utils.units.to_value(unit_system, 'LENGTH', self.length_entered)
+                        vector = (self.location-self.list_vertices_co[-1]).normalized()
+                        location = (self.list_vertices_co[-1]+(vector*text_value))
+                        G_location = self.obj_matrix.inverted()*location
+                        self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, G_location)
+                        self.length_entered = ""
+                        self.bool_constrain = False
+
+                    except:# ValueError:
+                        self.report({'INFO'}, "Operation not supported yet")
+
+            elif event.type in {'RIGHTMOUSE', 'ESC'}:
+                if self.list_vertices_co == [] or event.type == 'ESC':                
+                    bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+                    context.tool_settings.mesh_select_mode = self.select_mode
+                    context.area.header_text_set()
+                    context.user_preferences.view.use_rotate_around_active = self.use_rotate_around_active
+                    if not self.is_editmode:
+                        bpy.ops.object.editmode_toggle()
+                    return {'FINISHED'}
+                else:
+                    self.bool_constrain = False
+                    self.list_vertices = []
+                    self.list_vertices_co = []
+                    self.list_faces = []
                 
         return {'RUNNING_MODAL'}
 
@@ -656,6 +687,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.is_editmode = context.object.data.is_editmode
             bpy.ops.object.mode_set(mode='EDIT')
             context.space_data.use_occlude_geometry = True
+            self.uinfo = getUnitsInfo()
 
             self.use_rotate_around_active = context.user_preferences.view.use_rotate_around_active
             context.user_preferences.view.use_rotate_around_active = True
