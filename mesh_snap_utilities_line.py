@@ -78,6 +78,43 @@ def convertDistance(val, units_info):
                         idx += 1
         return dval
 
+def navigation(self, context, event):
+    if not hasattr(self, 'navigation_cache') or self.navigation_cache == None:
+        self.navigation_cache = True
+        self.keys_rotate = []
+        self.keys_move = []
+        self.keys_zoom = []
+        for key in context.window_manager.keyconfigs.user.keymaps['3D View'].keymap_items:
+            if key.idname == 'view3d.rotate':
+                self.keys_rotate.append((key.alt, key.ctrl, key.shift, key.type, key.value))
+            if key.idname == 'view3d.move':
+                self.keys_move.append((key.alt, key.ctrl, key.shift, key.type, key.value))
+            if key.idname == 'view3d.zoom':
+                self.keys_zoom.append((key.alt, key.ctrl, key.shift, key.type, key.value, key.properties.delta))
+                if key.type == 'WHEELINMOUSE':
+                    self.keys_zoom.append((key.alt, key.ctrl, key.shift, 'WHEELDOWNMOUSE', key.value, key.properties.delta))
+                if key.type == 'WHEELOUTMOUSE':
+                    self.keys_zoom.append((key.alt, key.ctrl, key.shift, 'WHEELUPMOUSE', key.value, key.properties.delta))
+
+    evkey = (event.alt, event.ctrl, event.shift, event.type, event.value)
+    for key in self.keys_rotate:
+        if evkey == key:
+            bpy.ops.view3d.rotate('INVOKE_DEFAULT')
+            break
+    for key in self.keys_move:
+        if evkey == key:
+            if event.shift:
+                if self.bool_constrain and (1 not in self.vector_constrain):
+                    self.bool_constrain = False
+            bpy.ops.view3d.move('INVOKE_DEFAULT')
+            break
+    for key in self.keys_zoom:
+        if evkey == key[0:5]:
+            delta = key[5]
+            context.region_data.view_distance += delta*context.region_data.view_distance/6
+            context.region_data.view_location -= delta*(self.location - context.region_data.view_location)/6
+            break
+
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
     width_half = region.width / 2.0
@@ -100,7 +137,9 @@ def out_Location(rv3d, region, orig, vector):
         hit = Vector((0,0,0))
     return hit
 
-def SnapUtilities(self, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, rv3d, region, outer_verts):
+def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, outer_verts):
+    rv3d = context.region_data
+    region = context.region
     if not hasattr(self, 'const'):
         self.const = None
 
@@ -510,34 +549,6 @@ class CharMap:
 
         return self.length_entered
 
-class Navigation:
-    keys = [
-        'MIDDLEMOUSE',
-        'WHEELDOWNMOUSE',
-        'WHEELUPMOUSE',
-        ]
-
-    def __init__(self, rv3d, location):
-        self.rv3d = rv3d
-        self.location = location
-
-    def modal(self, context, event):
-        if event.type == 'MIDDLEMOUSE':
-            self.rotMat = self.rv3d.view_matrix.copy()
-            if event.value == 'PRESS':
-                if event.shift:
-                    if self.bool_constrain and (1 not in self.vector_constrain):
-                        self.bool_constrain = False
-                    bpy.ops.view3d.move('INVOKE_DEFAULT')
-                        
-                else:
-                    bpy.ops.view3d.rotate('INVOKE_DEFAULT')
-
-        if event.type in {'WHEELDOWNMOUSE', 'WHEELUPMOUSE'}:
-            delta = (event.type == 'WHEELUPMOUSE') - (event.type == 'WHEELDOWNMOUSE')
-            self.rv3d.view_distance -= delta*self.rv3d.view_distance/6
-            self.rv3d.view_location += delta*(self.location - self.rv3d.view_location)/6
-
 class MESH_OT_snap_utilities_line(bpy.types.Operator):
     """ Draw edges. Connect them to split faces."""
     bl_idname = "mesh.snap_utilities_line"
@@ -545,6 +556,8 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def modal(self, context, event):
+        navigation(self, context, event)
+
         if context.area:
             context.area.tag_redraw()
 
@@ -560,9 +573,6 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 self.obj_matrix = self.obj.matrix_world.copy()
                 self.bm = bmesh.from_edit_mesh(self.obj.data)
                 return {'RUNNING_MODAL'}
-
-        if event.type in Navigation.keys:
-            Navigation.modal(self, context, event)
 
         elif event.type in Constrain.keys:
             Constrain2 = Constrain(self.bool_constrain, self.vector_constrain)
@@ -600,9 +610,9 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             
             outer_verts = self.outer_verts and not self.keytab
 
-            self.location, self.type = SnapUtilities(self, self.obj_matrix, self.geom, 
-                self.bool_update, bm_vert_to_perpendicular, (x, y), self.bool_constrain, 
-                self.vector_constrain, self.rv3d, self.region, outer_verts)
+            self.location, self.type = SnapUtilities(self, context, self.obj_matrix,
+                    self.geom, self.bool_update, bm_vert_to_perpendicular, (x, y), 
+                    self.bool_constrain, self.vector_constrain, outer_verts)
 
         elif event.value == 'PRESS':
             if event.ascii in CharMap.ascii or event.type in CharMap.type:
@@ -611,7 +621,6 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 #print(self.length_entered)
                 
             elif event.type == 'LEFTMOUSE':
-                #if event.value == 'PRESS':
                 # SNAP 2D
                 snap_3d = self.location
                 Lsnap_3d = self.obj_matrix.inverted()*snap_3d
@@ -670,9 +679,12 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
     def invoke(self, context, event):        
         if context.space_data.type == 'VIEW_3D':
+            self.region = context.region
+            self.rv3d = context.region_data
+
             create_new_obj = context.user_preferences.addons[__name__].preferences.create_new_obj
             if context.mode == 'OBJECT' and create_new_obj:
-		
+
                 mesh = bpy.data.meshes.new("")
                 mesh.from_pydata([context.scene.cursor_location], [], [])
                 mesh.update()
@@ -681,7 +693,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 bpy.ops.object.select_all(action = "DESELECT")
                 obj.select = True
                 context.scene.objects.active = obj
-        
+
             bgl.glEnable(bgl.GL_POINT_SMOOTH)
             self.is_editmode = context.object.data.is_editmode
             bpy.ops.object.mode_set(mode='EDIT')
