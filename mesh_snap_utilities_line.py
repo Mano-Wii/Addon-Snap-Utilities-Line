@@ -34,6 +34,8 @@ import bpy, bgl, bmesh, mathutils, math
 from mathutils import Vector, Matrix
 from bpy_extras import view3d_utils
 
+PRECISION = 5
+
 def getUnitsInfo():
         scale = bpy.context.scene.unit_settings.scale_length
         unit_system = bpy.context.scene.unit_settings.system
@@ -79,13 +81,15 @@ def convertDistance(val, units_info):
         return dval
 
 def navigation(self, context, event):
-    if not hasattr(self, 'navigation_cache') or self.navigation_cache == None:
+    rv3d = context.region_data
+    if not hasattr(self, 'navigation_cache'): # or self.navigation_cache == False:
         self.navigation_cache = True
         self.keys_rotate = []
         self.keys_move = []
         self.keys_zoom = []
         for key in context.window_manager.keyconfigs.user.keymaps['3D View'].keymap_items:
             if key.idname == 'view3d.rotate':
+                #self.keys_rotate[key.id]={'Alt': key.alt, 'Ctrl': key.ctrl, 'Shift':key.shift, 'Type':key.type, 'Value':key.value}
                 self.keys_rotate.append((key.alt, key.ctrl, key.shift, key.type, key.value))
             if key.idname == 'view3d.move':
                 self.keys_move.append((key.alt, key.ctrl, key.shift, key.type, key.value))
@@ -111,9 +115,13 @@ def navigation(self, context, event):
     for key in self.keys_zoom:
         if evkey == key[0:5]:
             delta = key[5]
-            context.region_data.view_distance += delta*context.region_data.view_distance/6
-            context.region_data.view_location -= delta*(self.location - context.region_data.view_location)/6
-            break
+            if delta == 0:
+                bpy.ops.view3d.zoom('INVOKE_DEFAULT')
+                break
+            else:
+                rv3d.view_distance += delta*rv3d.view_distance/6
+                rv3d.view_location -= delta*(self.location - rv3d.view_location)/6
+                break
 
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
@@ -462,41 +470,6 @@ def draw_callback_px(self, context):
         a = 'length: '+ self.length_entered
 
     context.area.header_text_set("hit: %.3f %.3f %.3f %s" % (self.location[0], self.location[1], self.location[2], a))
-    
-class PanelSnapUtilities(bpy.types.Panel) :
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "TOOLS"
-    #bl_context = "mesh_edit"
-    bl_category = "Snap Utilities"
-    bl_label = "snap utilities"
-    '''
-    @classmethod
-    def poll(cls, context):
-        return (context.object is not None and
-                context.object.type == 'MESH')
-    '''
-    def draw(self, context):
-        layout = self.layout
-        TheCol = layout.column(align = True)
-        TheCol.operator("mesh.snap_utilities_line", text = "Line", icon="GREASEPENCIL")
-        
-        addon_prefs = context.user_preferences.addons[__name__].preferences
-        
-        box = layout.box()
-        if not addon_prefs.expand_snap_settings:
-            # expand button
-            box.prop(addon_prefs, "expand_snap_settings", icon="TRIA_RIGHT", icon_only=True,
-                text="Settings:", emboss=False)
-        else:
-            # expand button
-            box.prop(addon_prefs, "expand_snap_settings", icon="TRIA_DOWN", icon_only=True,
-                text="Settings:", emboss=False) # icon_only broken?
-            box.label(text="Snap Items:")
-            box.prop(addon_prefs, "outer_verts")
-            box.label(text="Line Tool:")
-            box.prop(addon_prefs, "intersect")
-            box.prop(addon_prefs, "create_face")
-            box.prop(addon_prefs, "create_new_obj")
 
 class Constrain:
     keys = {
@@ -592,10 +565,16 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             else:
                 self.bool_update = False
 
+            try:
+                self.geom = self.bm.select_history[0]
+            except: # IndexError or AttributeError:
+                self.geom = None
+
             x, y = (event.mouse_region_x, event.mouse_region_y)
-            if self.obj:
+            if self.geom != None:
+                self.lastgeom = self.geom
                 bpy.ops.mesh.select_all(action='DESELECT')
-                
+
             bpy.ops.view3d.select(location=(x, y))
 
             if self.list_vertices_co != []:
@@ -603,10 +582,6 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             else:
                 bm_vert_to_perpendicular = None
             
-            try:
-                self.geom = self.bm.select_history[0]
-            except: # IndexError or AttributeError:
-                self.geom = None
             
             outer_verts = self.outer_verts and not self.keytab
 
@@ -706,8 +681,6 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.select_mode = context.tool_settings.mesh_select_mode[:]
             context.tool_settings.mesh_select_mode = (True, True, True)
             
-            self.region = context.region
-            self.rv3d = context.region_data
             self.rotMat = self.rv3d.view_matrix
             self.obj = bpy.context.active_object
             self.obj_matrix = self.obj.matrix_world.copy()
@@ -743,6 +716,51 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.report({'WARNING'}, "Active space must be a View3d")
             return {'CANCELLED'}
 
+def update_panel(self, context):
+    try:
+        bpy.utils.unregister_class(PanelSnapUtilities)
+    except:
+        print(PanelSnapUtilities.bl_category, context.user_preferences.addons[__name__].preferences.category)
+        pass
+    PanelSnapUtilities.bl_category = context.user_preferences.addons[__name__].preferences.category
+    bpy.utils.register_class(PanelSnapUtilities)
+
+class PanelSnapUtilities(bpy.types.Panel) :
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    #bl_context = "mesh_edit"
+    #bl_category = addon_prefs.category #"Snap Utilities"
+    bl_category = "Snap Utilities"
+    bl_label = "snap utilities"
+    '''
+    @classmethod
+    def poll(cls, context):
+        return (context.object is not None and
+                context.object.type == 'MESH')
+    '''
+    def draw(self, context):
+        layout = self.layout
+        TheCol = layout.column(align = True)
+        TheCol.operator("mesh.snap_utilities_line", text = "Line", icon="GREASEPENCIL")
+        
+        self.addon_prefs = context.user_preferences.addons[__name__].preferences
+        
+        box = layout.box()
+        if not self.addon_prefs.expand_snap_settings:
+            # expand button
+            box.prop(self.addon_prefs, "expand_snap_settings", icon="TRIA_RIGHT", icon_only=True,
+                text="Settings:", emboss=False)
+        else:
+            # expand button
+            box.prop(self.addon_prefs, "expand_snap_settings", icon="TRIA_DOWN", icon_only=True,
+                text="Settings:", emboss=False) # icon_only broken?
+            box.label(text="Snap Items:")
+            box.prop(self.addon_prefs, "outer_verts")
+            box.label(text="Line Tool:")
+            box.prop(self.addon_prefs, "intersect")
+            box.prop(self.addon_prefs, "create_face")
+            box.prop(self.addon_prefs, "create_new_obj")
+
 class SnapAddonPreferences(bpy.types.AddonPreferences):
     # this must match the addon name, use '__package__'
     # when defining this in a submodule of a python package.
@@ -772,6 +790,12 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
             name="Expand",
             description="Expand, to display the settings",
             default=False)
+            
+    category = bpy.props.StringProperty(
+            name="Category",
+            description="Choose a name for the category of the panel",
+            default="Snap Utilities",
+            update=update_panel)
 
     out_color = bpy.props.FloatVectorProperty(name="OUT", default=(0.0, 0.0, 0.0, 0.5), size=4, subtype="COLOR", min=0, max=1)
     face_color = bpy.props.FloatVectorProperty(name="FACE", default=(1.0, 0.8, 0.0, 1.0), size=4, subtype="COLOR", min=0, max=1)
@@ -804,6 +828,8 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
         row = layout.row()
 
         col = row.column()
+        col.label(text="Category:")
+        col.prop(self, "category", text="")
         col.label(text="Snap Items:")
         col.prop(self, "outer_verts")
 
@@ -818,13 +844,14 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
 def register():
     print('Addon', __name__, 'registered')
     bpy.utils.register_class(SnapAddonPreferences)
-    bpy.utils.register_class(PanelSnapUtilities)
     bpy.utils.register_class(MESH_OT_snap_utilities_line)
+    update_panel(None, bpy.context)
+    #bpy.utils.register_class(PanelSnapUtilities)
 
 def unregister():
-    bpy.utils.unregister_class(SnapAddonPreferences)
     bpy.utils.unregister_class(PanelSnapUtilities)
     bpy.utils.unregister_class(MESH_OT_snap_utilities_line)
+    bpy.utils.unregister_class(SnapAddonPreferences)
 
 if __name__ == "__main__":
     __name__ = "mesh_snap_utilities_line"
