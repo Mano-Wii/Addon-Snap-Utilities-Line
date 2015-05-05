@@ -556,6 +556,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 self.bool_update = True
             else:
                 self.bool_update = False
+
             try:
                 self.geom = self.bm.select_history[0]
             except: # IndexError or AttributeError:
@@ -563,7 +564,6 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
             x, y = (event.mouse_region_x, event.mouse_region_y)
             if self.geom != None:
-                self.lastgeom = self.geom
                 bpy.ops.mesh.select_all(action='DESELECT')
 
             bpy.ops.view3d.select(location=(x, y))
@@ -657,19 +657,12 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
     def invoke(self, context, event):        
         if context.space_data.type == 'VIEW_3D':
-            self.region = context.region
-            self.rv3d = context.region_data
-
             create_new_obj = context.user_preferences.addons[__name__].preferences.create_new_obj
-            if context.mode == 'OBJECT' and create_new_obj:
+            if context.mode == 'OBJECT' and create_new_obj or context.object == None:
 
                 mesh = bpy.data.meshes.new("")
-                mesh.from_pydata([context.scene.cursor_location], [], [])
-                mesh.update()
                 obj = bpy.data.objects.new("", mesh)
                 context.scene.objects.link(obj)
-                bpy.ops.object.select_all(action = "DESELECT")
-                obj.select = True
                 context.scene.objects.active = obj
 
             bgl.glEnable(bgl.GL_POINT_SMOOTH)
@@ -683,7 +676,9 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             
             self.select_mode = context.tool_settings.mesh_select_mode[:]
             context.tool_settings.mesh_select_mode = (True, True, True)
-            
+
+            self.region = context.region
+            self.rv3d = context.region_data
             self.rotMat = self.rv3d.view_matrix.copy()
             self.obj = bpy.context.active_object
             self.obj_matrix = self.obj.matrix_world.copy()
@@ -736,23 +731,23 @@ class PanelSnapUtilities(bpy.types.Panel) :
         TheCol = layout.column(align = True)
         TheCol.operator("mesh.snap_utilities_line", text = "Line", icon="GREASEPENCIL")
         
-        self.addon_prefs = context.user_preferences.addons[__name__].preferences
+        addon_prefs = context.user_preferences.addons[__name__].preferences
         
         box = layout.box()
-        if not self.addon_prefs.expand_snap_settings:
+        if not addon_prefs.expand_snap_settings:
             # expand button
-            box.prop(self.addon_prefs, "expand_snap_settings", icon="TRIA_RIGHT", icon_only=True,
+            box.prop(addon_prefs, "expand_snap_settings", icon="TRIA_RIGHT", icon_only=True,
                 text="Settings:", emboss=False)
         else:
             # expand button
-            box.prop(self.addon_prefs, "expand_snap_settings", icon="TRIA_DOWN", icon_only=True,
+            box.prop(addon_prefs, "expand_snap_settings", icon="TRIA_DOWN", icon_only=True,
                 text="Settings:", emboss=False) # icon_only broken?
             box.label(text="Snap Items:")
-            box.prop(self.addon_prefs, "outer_verts")
+            box.prop(addon_prefs, "outer_verts")
             box.label(text="Line Tool:")
-            box.prop(self.addon_prefs, "intersect")
-            box.prop(self.addon_prefs, "create_face")
-            box.prop(self.addon_prefs, "create_new_obj")
+            box.prop(addon_prefs, "intersect")
+            box.prop(addon_prefs, "create_face")
+            box.prop(addon_prefs, "create_new_obj")
 
 def update_panel(self, context):
     try:
