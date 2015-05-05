@@ -153,25 +153,29 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
 
     if bool_constrain == False and self.const != None:
         self.const = None
+        
+    if bool_update:
+        #self.bvert = None
+        self.bedge = None
+        #self.bface = None
 
     if isinstance(bm_geom, bmesh.types.BMVert):
-        if not hasattr(self, 'bvert') or self.bvert != bm_geom or bool_update == True:
+        if not hasattr(self, 'bvert') or self.bvert != bm_geom:
             self.bvert = bm_geom
             self.vert = obj_matrix_world * self.bvert.co
-            self.Pvert = location_3d_to_region_2d(region, rv3d, self.vert)
+            #self.Pvert = location_3d_to_region_2d(region, rv3d, self.vert)
 
         if bool_constrain == True:
             if self.const == None:
                 self.const = self.vert
-            #point = Vector([(self.vert[index] if vector_constrain==1 else self.const[index]) for index, vector_constrain in enumerate(vector_constrain)])
-            point = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
-            #point = vector_constrain.project(self.vert)
+            #point = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
+            point = (self.vert-self.const).project(vector_constrain) + self.const
             return point, 'VERT' #or 'FACE' or 'OUT' or 'EDGE'
         #else:
         return self.vert, 'VERT'
                 
     if isinstance(bm_geom, bmesh.types.BMEdge):
-        if not hasattr(self, 'bedge') or self.bedge != bm_geom or bool_update == True:
+        if not hasattr(self, 'bedge') or self.bedge != bm_geom:
             self.bedge = bm_geom
             self.vert0 = obj_matrix_world*self.bedge.verts[0].co
             self.vert1 = obj_matrix_world*self.bedge.verts[1].co
@@ -215,7 +219,7 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
                 return point[0], 'EDGE'
 
     if isinstance(bm_geom, bmesh.types.BMFace):
-        if not hasattr(self, 'bface') or self.bface != bm_geom or bool_update == True:
+        if not hasattr(self, 'bface') or self.bface != bm_geom:
             self.bface = bm_geom
             self.face_center = obj_matrix_world*bm_geom.calc_center_median()
             self.face_normal = bm_geom.normal*obj_matrix_world.inverted()
@@ -478,6 +482,7 @@ class Constrain:
         'Z': Vector((0,0,1)),
         'RIGHT_SHIFT': 'shift',
         'LEFT_SHIFT': 'shift',
+        #'LEFT_CTRL': 'Ctrl'
         }
 
     def __init__(self, bool_constrain = False, vector_constrain = None):
@@ -534,20 +539,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
         if context.area:
             context.area.tag_redraw()
 
-        if event.ctrl:
-            if event.type == 'Z' and event.value == 'PRESS':
-                bpy.ops.ed.undo()
-                self.bool_constrain = False
-                self.list_vertices_co = []
-                self.list_vertices = []
-                self.list_edges = []
-                self.list_faces = []
-                self.obj = bpy.context.active_object
-                self.obj_matrix = self.obj.matrix_world.copy()
-                self.bm = bmesh.from_edit_mesh(self.obj.data)
-                return {'RUNNING_MODAL'}
-
-        elif event.type in Constrain.keys:
+        if event.type in Constrain.keys:
             Constrain2 = Constrain(self.bool_constrain, self.vector_constrain)
             self.bool_constrain, self.vector_constrain = Constrain2.modal(context, event)
             if self.vector_constrain == 'shift':
@@ -560,11 +552,10 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
         if event.type == 'MOUSEMOVE' or self.bool_update:
             if self.rv3d.view_matrix != self.rotMat:
-                self.rotMat = self.rv3d.view_matrix
+                self.rotMat = self.rv3d.view_matrix.copy()
                 self.bool_update = True
             else:
                 self.bool_update = False
-
             try:
                 self.geom = self.bm.select_history[0]
             except: # IndexError or AttributeError:
@@ -590,6 +581,18 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     self.bool_constrain, self.vector_constrain, outer_verts)
 
         elif event.value == 'PRESS':
+            if event.ctrl and event.type == 'Z':
+                bpy.ops.ed.undo()
+                self.bool_constrain = False
+                self.list_vertices_co = []
+                self.list_vertices = []
+                self.list_edges = []
+                self.list_faces = []
+                self.obj = bpy.context.active_object
+                self.obj_matrix = self.obj.matrix_world.copy()
+                self.bm = bmesh.from_edit_mesh(self.obj.data)
+                return {'RUNNING_MODAL'}
+
             if event.ascii in CharMap.ascii or event.type in CharMap.type:
                 CharMap2 = CharMap(self.length_entered)
                 self.length_entered = CharMap2.modal(context, event)
@@ -681,7 +684,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.select_mode = context.tool_settings.mesh_select_mode[:]
             context.tool_settings.mesh_select_mode = (True, True, True)
             
-            self.rotMat = self.rv3d.view_matrix
+            self.rotMat = self.rv3d.view_matrix.copy()
             self.obj = bpy.context.active_object
             self.obj_matrix = self.obj.matrix_world.copy()
             self.bm = bmesh.from_edit_mesh(self.obj.data)
