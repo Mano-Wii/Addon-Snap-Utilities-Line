@@ -716,22 +716,12 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.report({'WARNING'}, "Active space must be a View3d")
             return {'CANCELLED'}
 
-def update_panel(self, context):
-    try:
-        bpy.utils.unregister_class(PanelSnapUtilities)
-    except:
-        print(PanelSnapUtilities.bl_category, context.user_preferences.addons[__name__].preferences.category)
-        pass
-    PanelSnapUtilities.bl_category = context.user_preferences.addons[__name__].preferences.category
-    bpy.utils.register_class(PanelSnapUtilities)
-
 class PanelSnapUtilities(bpy.types.Panel) :
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
     #bl_context = "mesh_edit"
-    #bl_category = addon_prefs.category #"Snap Utilities"
     bl_category = "Snap Utilities"
-    bl_label = "snap utilities"
+    bl_label = "Snap Utilities"
     '''
     @classmethod
     def poll(cls, context):
@@ -760,6 +750,14 @@ class PanelSnapUtilities(bpy.types.Panel) :
             box.prop(self.addon_prefs, "intersect")
             box.prop(self.addon_prefs, "create_face")
             box.prop(self.addon_prefs, "create_new_obj")
+
+def update_panel(self, context):
+    try:
+        bpy.utils.unregister_class(PanelSnapUtilities)
+    except:
+        pass
+    PanelSnapUtilities.bl_category = context.user_preferences.addons[__name__].preferences.category
+    bpy.utils.register_class(PanelSnapUtilities)
 
 class SnapAddonPreferences(bpy.types.AddonPreferences):
     # this must match the addon name, use '__package__'
