@@ -81,6 +81,8 @@ def convertDistance(val, units_info):
         return dval
 
 def navigation(self, context, event):
+    #TO DO:
+    #'View Orbit', 'View Pan', 'NDOF Orbit View', 'NDOF Pan View'
     rv3d = context.region_data
     if not hasattr(self, 'navigation_cache'): # or self.navigation_cache == False:
         self.navigation_cache = True
@@ -534,8 +536,6 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def modal(self, context, event):
-        navigation(self, context, event)
-
         if context.area:
             context.area.tag_redraw()
 
@@ -652,7 +652,8 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     self.list_vertices = []
                     self.list_vertices_co = []
                     self.list_faces = []
-                
+               
+        navigation(self, context, event) 
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):        
@@ -732,16 +733,13 @@ class PanelSnapUtilities(bpy.types.Panel) :
         TheCol.operator("mesh.snap_utilities_line", text = "Line", icon="GREASEPENCIL")
         
         addon_prefs = context.user_preferences.addons[__name__].preferences
-        
+        expand = addon_prefs.expand_snap_settings
+        icon = "TRIA_DOWN" if expand else "TRIA_RIGHT"
+
         box = layout.box()
-        if not addon_prefs.expand_snap_settings:
-            # expand button
-            box.prop(addon_prefs, "expand_snap_settings", icon="TRIA_RIGHT", icon_only=True,
-                text="Settings:", emboss=False)
-        else:
-            # expand button
-            box.prop(addon_prefs, "expand_snap_settings", icon="TRIA_DOWN", icon_only=True,
-                text="Settings:", emboss=False) # icon_only broken?
+        box.prop(addon_prefs, "expand_snap_settings", icon=icon,
+            text="Settings:", emboss=False)
+        if expand:
             box.label(text="Snap Items:")
             box.prop(addon_prefs, "outer_verts")
             box.label(text="Line Tool:")
