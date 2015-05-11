@@ -1,4 +1,4 @@
-﻿### BEGIN GPL LICENSE BLOCK #####
+### BEGIN GPL LICENSE BLOCK #####
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (4, 0),
+    "version": (4, 2),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -37,48 +37,48 @@ from bpy_extras import view3d_utils
 PRECISION = 5
 
 def getUnitsInfo():
-        scale = bpy.context.scene.unit_settings.scale_length
-        unit_system = bpy.context.scene.unit_settings.system
-        separate_units = bpy.context.scene.unit_settings.use_separate
-        if unit_system == 'METRIC':
-                scale_steps = ((1000, 'km'), (1, 'm'), (1 / 100, 'cm'),
-                    (1 / 1000, 'mm'), (1 / 1000000, '\u00b5m'))
-        elif unit_system == 'IMPERIAL':
-                scale_steps = ((5280, 'mi'), (1, '\''),
-                    (1 / 12, '"'), (1 / 12000, 'thou'))
-                scale /= 0.3048  # BU to feet
-        else:
-                scale_steps = ((1, ' BU'),)
-                separate_units = False
+    scale = bpy.context.scene.unit_settings.scale_length
+    unit_system = bpy.context.scene.unit_settings.system
+    separate_units = bpy.context.scene.unit_settings.use_separate
+    if unit_system == 'METRIC':
+            scale_steps = ((1000, 'km'), (1, 'm'), (1 / 100, 'cm'),
+                (1 / 1000, 'mm'), (1 / 1000000, '\u00b5m'))
+    elif unit_system == 'IMPERIAL':
+            scale_steps = ((5280, 'mi'), (1, '\''),
+                (1 / 12, '"'), (1 / 12000, 'thou'))
+            scale /= 0.3048  # BU to feet
+    else:
+            scale_steps = ((1, ' BU'),)
+            separate_units = False
 
-        return (scale, scale_steps, separate_units)
+    return (scale, scale_steps, separate_units)
     
 def convertDistance(val, units_info):
-        scale, scale_steps, separate_units = units_info
-        sval = val * scale
-        idx = 0
-        while idx < len(scale_steps) - 1:
-                if sval >= scale_steps[idx][0]:
-                        break
-                idx += 1
-        factor, suffix = scale_steps[idx]
-        sval /= factor
-        if not separate_units or idx == len(scale_steps) - 1:
-                dval = str(round(sval, PRECISION)) + suffix
-        else:
-                ival = int(sval)
-                dval = str(round(ival, PRECISION)) + suffix
-                fval = sval - ival
-                idx += 1
-                while idx < len(scale_steps):
-                        fval *= scale_steps[idx - 1][0] / scale_steps[idx][0]
-                        if fval >= 1:
-                                dval += ' ' \
-                                    + ("%.1f" % fval) \
-                                    + scale_steps[idx][1]
-                                break
-                        idx += 1
-        return dval
+    scale, scale_steps, separate_units = units_info
+    sval = val * scale
+    idx = 0
+    while idx < len(scale_steps) - 1:
+            if sval >= scale_steps[idx][0]:
+                    break
+            idx += 1
+    factor, suffix = scale_steps[idx]
+    sval /= factor
+    if not separate_units or idx == len(scale_steps) - 1:
+            dval = str(round(sval, PRECISION)) + suffix
+    else:
+            ival = int(sval)
+            dval = str(round(ival, PRECISION)) + suffix
+            fval = sval - ival
+            idx += 1
+            while idx < len(scale_steps):
+                    fval *= scale_steps[idx - 1][0] / scale_steps[idx][0]
+                    if fval >= 1:
+                            dval += ' ' \
+                                + ("%.1f" % fval) \
+                                + scale_steps[idx][1]
+                            break
+                    idx += 1
+    return dval
 
 def navigation(self, context, event):
     #TO DO:
@@ -119,11 +119,10 @@ def navigation(self, context, event):
             delta = key[5]
             if delta == 0:
                 bpy.ops.view3d.zoom('INVOKE_DEFAULT')
-                break
             else:
                 rv3d.view_distance += delta*rv3d.view_distance/6
                 rv3d.view_location -= delta*(self.location - rv3d.view_location)/6
-                break
+            break
 
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
@@ -147,7 +146,7 @@ def out_Location(rv3d, region, orig, vector):
         hit = Vector((0,0,0))
     return hit
 
-def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, outer_verts):
+def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, outer_verts, increm = 1):
     rv3d = context.region_data
     region = context.region
     if not hasattr(self, 'const'):
@@ -162,6 +161,10 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
         #self.bface = None
 
     if isinstance(bm_geom, bmesh.types.BMVert):
+        if not hasattr(self, 'type') or self.type != 'VERT':
+            self.is_incremental = False
+            self.type = 'VERT'
+
         if not hasattr(self, 'bvert') or self.bvert != bm_geom:
             self.bvert = bm_geom
             self.vert = obj_matrix_world * self.bvert.co
@@ -170,13 +173,17 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
         if bool_constrain == True:
             if self.const == None:
                 self.const = self.vert
-            #point = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
-            point = (self.vert-self.const).project(vector_constrain) + self.const
-            return point, 'VERT' #or 'FACE' or 'OUT' or 'EDGE'
-        #else:
-        return self.vert, 'VERT'
+            #location = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
+            location = (self.vert-self.const).project(vector_constrain) + self.const
+        else:
+            location = self.vert
                 
-    if isinstance(bm_geom, bmesh.types.BMEdge):
+    elif isinstance(bm_geom, bmesh.types.BMEdge):
+        if vert_perp in bm_geom.verts:
+            self.is_incremental = True
+        else:
+            self.is_incremental = False
+        
         if not hasattr(self, 'bedge') or self.bedge != bm_geom:
             self.bedge = bm_geom
             self.vert0 = obj_matrix_world*self.bedge.verts[0].co
@@ -186,41 +193,49 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
             self.Pvert0 = location_3d_to_region_2d(region, rv3d, self.vert0)
             self.Pvert1 = location_3d_to_region_2d(region, rv3d, self.vert1)
                 
-            if vert_perp != None and vert_perp not in [v.co for v in self.bedge.verts]:
-                point_perpendicular = mathutils.geometry.intersect_point_line(vert_perp, self.vert0, self.vert1)
+            if vert_perp != None and vert_perp not in self.bedge.verts:
+                vperp_co = obj_matrix_world*vert_perp.co
+                point_perpendicular = mathutils.geometry.intersect_point_line(vperp_co, self.vert0, self.vert1)
                 self.po_perp = point_perpendicular[0]
                 self.Pperp = location_3d_to_region_2d(region, rv3d, self.po_perp)
 
         if bool_constrain == True:
+            self.type = 'EDGE'
             if self.const == None:
                 if vert_perp != None:
-                    self.const = vert_perp
+                    self.const = obj_matrix_world*vert_perp.co
                 else:
                     self.const = self.po_cent
 
-            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
-            if point == None:
+            location = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
+            if location == None:
                 orig = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
                 view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
                 end = orig + view_vector
-                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-            return point[0], 'EDGE'
+                location = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
+            location = location[0]
 
         else:
             if hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor[0]) < 10 and abs(self.Pperp[1]-mcursor[1]) < 10:
-                return self.po_perp, 'PERPENDICULAR'
+                self.type = 'PERPENDICULAR'
+                location = self.po_perp
 
             elif abs(self.Pcent[0]-mcursor[0]) < 10 and abs(self.Pcent[1]-mcursor[1]) < 10:
-                return self.po_cent, 'CENTER'
+                self.type = 'CENTER'
+                location = self.po_cent
             
             else:
+                self.type = 'EDGE'
                 orig = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
                 view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
                 end = orig + view_vector
-                point = mathutils.geometry.intersect_line_line(self.vert0, self.vert1, orig, end)
-                return point[0], 'EDGE'
+                location = mathutils.geometry.intersect_line_line(self.vert0, self.vert1, orig, end)[0]
 
-    if isinstance(bm_geom, bmesh.types.BMFace):
+    elif isinstance(bm_geom, bmesh.types.BMFace):
+        if not hasattr(self, 'type') or self.type != 'FACE':
+            self.is_incremental = True
+            self.type = 'FACE'
+            
         if not hasattr(self, 'bface') or self.bface != bm_geom:
             self.bface = bm_geom
             self.face_center = obj_matrix_world*bm_geom.calc_center_median()
@@ -232,23 +247,23 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
         if bool_constrain == True:
             if self.const == None:
                 if vert_perp != None:
-                    self.const = vert_perp
+                    self.const = obj_matrix_world*vert_perp.co
                 else:
                     self.const = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
-            point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-            return point[0], 'FACE'
-        #else:
-        point = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
-        return point, 'FACE'
-    
+            location = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)[0]
+        else:
+            location = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
+
     else:
+        self.type = 'OUT'
+        self.is_incremental = True
         orig = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
         view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
         end = orig + view_vector * 1000
         scene = bpy.context.scene
         result, object, matrix, location, normal = scene.ray_cast(orig, end)
         if result:
-            type = 'FACE'
+            self.type = 'FACE'
             if outer_verts:
                 try:
                     # get the ray relative to the object
@@ -265,28 +280,37 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
                         v_2d = location_3d_to_region_2d(region, rv3d, v_co)
                         dist = (Vector(mcursor)-v_2d).length
                         if dist < v_dist:
+                            self.type = 'VERT'
+                            self.is_incremental = False
                             v_dist = dist
                             location = v_co
-                            type = 'VERT'
                 except:
                     print("fail")
         else:
             location = out_Location(rv3d, region, orig, view_vector)
-            type = 'OUT'
 
         if bool_constrain == True:
             if self.const == None:
                 if vert_perp != None:
-                    self.const = vert_perp
+                    self.const = obj_matrix_world*vert_perp.co
                 else:
                     self.const = location
-            if type == 'VERT':
+            if self.type == 'VERT':
                 self.vert = location
-                point = mathutils.geometry.intersect_point_line(location, self.const, (self.const+vector_constrain))
+                location = mathutils.geometry.intersect_point_line(location, self.const, (self.const+vector_constrain))
             else:
-                point = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-            location = point[0]
-        return location, type
+                location = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)[0]
+
+    if vert_perp != None:
+        lv = obj_matrix_world*vert_perp.co
+        rel = location-lv
+        if increm != 0 and self.is_incremental:
+            self.len = round((1/increm)*rel.length)*increm
+            location = self.len*rel.normalized() + lv
+        else:
+            self.len = rel.length
+
+    return location, self.type
 
 def get_isolated_edges(bmvert):
     linked = [c for c in bmvert.link_edges[:] if c.link_faces[:] == []]
@@ -469,7 +493,8 @@ def draw_callback_px(self, context):
 
     a = ""
     if self.list_vertices_co != [] and self.length_entered == "":
-        length = (self.list_vertices_co[-1]-self.location).length
+        length = self.len
+        #length = (self.list_vertices_co[-1]-self.location).length
         length = convertDistance(length, self.uinfo)
         a = 'length: '+ length
     elif self.list_vertices_co != [] and self.length_entered != "":
@@ -566,10 +591,10 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             if self.geom != None:
                 bpy.ops.mesh.select_all(action='DESELECT')
 
-            bpy.ops.view3d.select(location=(x, y))
-
+            #bpy.ops.view3d.select(object=True, location=(x, y))
+            bpy.ops.view3d.select(object=False, location=(x, y))
             if self.list_vertices_co != []:
-                bm_vert_to_perpendicular = self.list_vertices_co[-1]
+                bm_vert_to_perpendicular = self.list_vertices[-1]
             else:
                 bm_vert_to_perpendicular = None
             
@@ -578,7 +603,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
             self.location, self.type = SnapUtilities(self, context, self.obj_matrix,
                     self.geom, self.bool_update, bm_vert_to_perpendicular, (x, y), 
-                    self.bool_constrain, self.vector_constrain, outer_verts)
+                    self.bool_constrain, self.vector_constrain, outer_verts, self.incremental)
 
         elif event.value == 'PRESS':
             if event.ctrl and event.type == 'Z':
@@ -626,8 +651,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             if event.type in {'RET', 'NUMPAD_ENTER'}:
                 if self.length_entered != "" and self.list_vertices_co != []:
                     try:
-                        unit_system = context.scene.unit_settings.system
-                        text_value = bpy.utils.units.to_value(unit_system, 'LENGTH', self.length_entered)
+                        text_value = bpy.utils.units.to_value(self.unit_system, 'LENGTH', self.length_entered)
                         vector = (self.location-self.list_vertices_co[-1]).normalized()
                         location = (self.list_vertices_co[-1]+(vector*text_value))
                         G_location = self.obj_matrix.inverted()*location
@@ -659,7 +683,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
     def invoke(self, context, event):        
         if context.space_data.type == 'VIEW_3D':
             create_new_obj = context.user_preferences.addons[__name__].preferences.create_new_obj
-            if context.mode == 'OBJECT' and create_new_obj or context.object == None:
+            if context.mode == 'OBJECT' and (create_new_obj or context.object == None or context.object.type != 'MESH'):
 
                 mesh = bpy.data.meshes.new("")
                 obj = bpy.data.objects.new("", mesh)
@@ -685,6 +709,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.obj_matrix = self.obj.matrix_world.copy()
             self.bm = bmesh.from_edit_mesh(self.obj.data)
             
+            self.list_vertices = []
             self.list_vertices_co = []
             self.bool_constrain = False
             self.bool_update = False
@@ -709,6 +734,10 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.create_face = context.user_preferences.addons[__name__].preferences.create_face
             self.intersect = context.user_preferences.addons[__name__].preferences.intersect
             self.outer_verts = context.user_preferences.addons[__name__].preferences.outer_verts
+            
+            self.unit_system = context.scene.unit_settings.system
+            incremental = context.user_preferences.addons[__name__].preferences.incremental
+            self.incremental = bpy.utils.units.to_value(self.unit_system, 'LENGTH', str(incremental))
 
             return {'RUNNING_MODAL'}
         else:
@@ -740,8 +769,9 @@ class PanelSnapUtilities(bpy.types.Panel) :
         box.prop(addon_prefs, "expand_snap_settings", icon=icon,
             text="Settings:", emboss=False)
         if expand:
-            box.label(text="Snap Items:")
+            #box.label(text="Snap Items:")
             box.prop(addon_prefs, "outer_verts")
+            box.prop(addon_prefs, "incremental")
             box.label(text="Line Tool:")
             box.prop(addon_prefs, "intersect")
             box.prop(addon_prefs, "create_face")
@@ -790,6 +820,14 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
             description="Choose a name for the category of the panel",
             default="Snap Utilities",
             update=update_panel)
+            
+    incremental = bpy.props.FloatProperty(
+            name="Incremental",
+            description="Snap in defined increments",
+            default=0,
+            min=0,
+            step=1,
+            precision=3)
 
     out_color = bpy.props.FloatVectorProperty(name="OUT", default=(0.0, 0.0, 0.0, 0.5), size=4, subtype="COLOR", min=0, max=1)
     face_color = bpy.props.FloatVectorProperty(name="FACE", default=(1.0, 0.8, 0.0, 1.0), size=4, subtype="COLOR", min=0, max=1)
@@ -824,9 +862,9 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
         col = row.column()
         col.label(text="Category:")
         col.prop(self, "category", text="")
-        col.label(text="Snap Items:")
+        #col.label(text="Snap Items:")
+        col.prop(self, "incremental")
         col.prop(self, "outer_verts")
-
         row.separator()
 
         col = row.column()
