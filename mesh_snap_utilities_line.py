@@ -1,4 +1,4 @@
-### BEGIN GPL LICENSE BLOCK #####
+﻿### BEGIN GPL LICENSE BLOCK #####
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -22,13 +22,13 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (4, 2),
+    "version": (4, 6),
     "blender": (2, 74, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
     "wiki_url" : "http://blenderartists.org/forum/showthread.php?363859-Addon-CAD-Snap-Utilities",
     "category": "Mesh"}
-
+    
 import bpy, bgl, bmesh, mathutils, math
 #from space_view3d_panel_measure import getUnitsInfo, convertDistance
 from mathutils import Vector, Matrix
@@ -86,43 +86,39 @@ def navigation(self, context, event):
     rv3d = context.region_data
     if not hasattr(self, 'navigation_cache'): # or self.navigation_cache == False:
         self.navigation_cache = True
-        self.keys_rotate = []
-        self.keys_move = []
-        self.keys_zoom = []
+        self.keys_rotate = set()
+        self.keys_move = set()
+        self.keys_zoom = set()
         for key in context.window_manager.keyconfigs.user.keymaps['3D View'].keymap_items:
             if key.idname == 'view3d.rotate':
                 #self.keys_rotate[key.id]={'Alt': key.alt, 'Ctrl': key.ctrl, 'Shift':key.shift, 'Type':key.type, 'Value':key.value}
-                self.keys_rotate.append((key.alt, key.ctrl, key.shift, key.type, key.value))
+                self.keys_rotate.add((key.alt, key.ctrl, key.shift, key.type, key.value))
             if key.idname == 'view3d.move':
-                self.keys_move.append((key.alt, key.ctrl, key.shift, key.type, key.value))
+                self.keys_move.add((key.alt, key.ctrl, key.shift, key.type, key.value))
             if key.idname == 'view3d.zoom':
-                self.keys_zoom.append((key.alt, key.ctrl, key.shift, key.type, key.value, key.properties.delta))
+                self.keys_zoom.add((key.alt, key.ctrl, key.shift, key.type, key.value, key.properties.delta))
                 if key.type == 'WHEELINMOUSE':
-                    self.keys_zoom.append((key.alt, key.ctrl, key.shift, 'WHEELDOWNMOUSE', key.value, key.properties.delta))
+                    self.keys_zoom.add((key.alt, key.ctrl, key.shift, 'WHEELDOWNMOUSE', key.value, key.properties.delta))
                 if key.type == 'WHEELOUTMOUSE':
-                    self.keys_zoom.append((key.alt, key.ctrl, key.shift, 'WHEELUPMOUSE', key.value, key.properties.delta))
+                    self.keys_zoom.add((key.alt, key.ctrl, key.shift, 'WHEELUPMOUSE', key.value, key.properties.delta))
 
     evkey = (event.alt, event.ctrl, event.shift, event.type, event.value)
-    for key in self.keys_rotate:
-        if evkey == key:
-            bpy.ops.view3d.rotate('INVOKE_DEFAULT')
-            break
-    for key in self.keys_move:
-        if evkey == key:
-            if event.shift:
-                if self.bool_constrain and (1 not in self.vector_constrain):
-                    self.bool_constrain = False
-            bpy.ops.view3d.move('INVOKE_DEFAULT')
-            break
-    for key in self.keys_zoom:
-        if evkey == key[0:5]:
-            delta = key[5]
-            if delta == 0:
-                bpy.ops.view3d.zoom('INVOKE_DEFAULT')
-            else:
-                rv3d.view_distance += delta*rv3d.view_distance/6
-                rv3d.view_location -= delta*(self.location - rv3d.view_location)/6
-            break
+    if evkey in self.keys_rotate:
+        bpy.ops.view3d.rotate('INVOKE_DEFAULT')
+    elif evkey in self.keys_move:
+        if event.shift and self.bool_constrain and (1 not in self.vector_constrain):
+                self.bool_constrain = False
+        bpy.ops.view3d.move('INVOKE_DEFAULT')
+    else:
+        for key in self.keys_zoom:
+            if evkey == key[0:5]:
+                delta = key[5]
+                if delta == 0:
+                    bpy.ops.view3d.zoom('INVOKE_DEFAULT')
+                else:
+                    rv3d.view_distance += delta*rv3d.view_distance/6
+                    rv3d.view_location -= delta*(self.location - rv3d.view_location)/6
+                break
 
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
@@ -146,7 +142,7 @@ def out_Location(rv3d, region, orig, vector):
         hit = Vector((0,0,0))
     return hit
 
-def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, outer_verts, increm = 1):
+def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, outer_verts, ignore_obj = None, increm = 0):
     rv3d = context.region_data
     region = context.region
     if not hasattr(self, 'const'):
@@ -265,7 +261,7 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
         end = orig + view_vector * 1000
         scene = bpy.context.scene
         result, object, matrix, location, normal = scene.ray_cast(orig, end)
-        if result:
+        if result and object != ignore_obj:
             self.type = 'FACE'
             if outer_verts:
                 try:
@@ -291,6 +287,13 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
                     print("fail")
         else:
             location = out_Location(rv3d, region, orig, view_vector)
+            if self.snap_to_grid:
+                scale = 1/self.scale
+                rd = bpy.utils.units.to_value(self.unit_system, 'LENGTH', str(scale))
+                loc = location/rd
+                location = Vector((round(loc.x),
+                                   round(loc.y),
+                                   round(loc.z)))*rd
 
         if bool_constrain == True:
             if self.const == None:
@@ -344,14 +347,14 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         else:
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
             self.list_vertices.append(vertices['vert'][0])
-
+        
     elif isinstance(bm_geom, bmesh.types.BMEdge):
         self.list_edges.append(bm_geom)
         vector_p0_l = (bm_geom.verts[0].co-location)
         vector_p1_l = (bm_geom.verts[1].co-location)
-        wedge = vector_p0_l.y*vector_p1_l.x - vector_p0_l.x*vector_p1_l.y
+        cross = vector_p0_l.cross(vector_p1_l)
 
-        if round(wedge, 4) == 0: # or round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
+        if cross < Vector((0.001,0,0)): # or round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
             factor = vector_p0_l.length/bm_geom.calc_length()
             vertex0 = bmesh.utils.edge_split(bm_geom, bm_geom.verts[0], factor)
             self.list_vertices.append(vertex0[1])
@@ -365,7 +368,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         self.list_faces.append(bm_geom)
         vertices = (bmesh.ops.create_vert(Bmesh, co=(location)))
         self.list_vertices.append(vertices['vert'][0])
-
+    
     # draw, split and create face
     if len(self.list_vertices) >= 2:
         V1 = self.list_vertices[-2]
@@ -376,14 +379,14 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                 self.list_edges.append(edge)
                 break
         else: #if V1 not in V2_link_verts:
-            if V2.link_edges[:] == []:
+            if not V2.link_edges:
                 edge = Bmesh.edges.new([V1, V2])
                 self.list_edges.append(edge)
             else:
                 face = [x for x in V2.link_faces[:] if x in V1.link_faces[:]]
                 if face != []:# and self.list_faces == []:
                     self.list_faces = face
-
+                    
                 elif V1.link_faces[:] == [] or V2.link_faces[:] == []:
                     if self.list_faces == []:
                         if V1.link_faces[:] != []:
@@ -433,6 +436,114 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
             #print('face created')
 
     return [obj.matrix_world*a.co for a in self.list_vertices]
+    
+class Constrain:
+    keys = {
+        'X': Vector((1,0,0)),
+        'Y': Vector((0,1,0)),
+        'Z': Vector((0,0,1)),
+        'RIGHT_SHIFT': 'shift',
+        'LEFT_SHIFT': 'shift',
+        }
+
+    def __init__(self, bool_constrain = False, vector_constrain = None):
+        self.bool_constrain = bool_constrain
+        self.vector_constrain = vector_constrain
+
+    def modal(self, context, event):
+        if event.value == 'PRESS':
+            if self.vector_constrain == self.keys[event.type] or self.bool_constrain == False:
+                self.bool_constrain = self.bool_constrain == False
+                self.vector_constrain = self.keys[event.type]
+                
+            elif event.shift:
+                if self.vector_constrain not in self.keys.values():
+                    self.bool_constrain = self.bool_constrain == False
+                    self.vector_constrain = self.keys[event.type]
+                    
+            else:
+                self.vector_constrain = self.keys[event.type]
+                    
+        return self.bool_constrain, self.vector_constrain
+    
+class CharMap:
+    ascii = {
+        ".", ",", "-", "+", "1", "2", "3",
+        "4", "5", "6", "7", "8", "9", "0",
+        " ", "/", "*", "'", "\""
+        #"="
+        }
+    type = {
+        'BACK_SPACE', 'DEL'
+        }
+
+    def __init__(self, length_entered = ""):
+        self.length_entered = length_entered
+
+    def modal(self, context, event):
+        c = event.ascii
+        if c == ",":
+            c = "."
+        self.length_entered += c
+        if event.type in self.type and len(self.length_entered) >= 1:
+            self.length_entered = self.length_entered[:-1]
+
+        return self.length_entered
+
+def general_invoke(self, context, event):
+    bgl.glEnable(bgl.GL_POINT_SMOOTH)
+    self.is_editmode = bpy.context.object.data.is_editmode
+    bpy.ops.object.mode_set(mode='EDIT')
+    context.space_data.use_occlude_geometry = True
+    self.uinfo = getUnitsInfo()
+
+    self.use_rotate_around_active = context.user_preferences.view.use_rotate_around_active
+    context.user_preferences.view.use_rotate_around_active = True
+    
+    self.select_mode = context.tool_settings.mesh_select_mode[:]
+    context.tool_settings.mesh_select_mode = (True, True, True)
+    
+    self.region = context.region
+    self.rv3d = context.region_data
+    self.rotMat = self.rv3d.view_matrix.copy()
+    self.obj = bpy.context.active_object
+    self.obj_matrix = self.obj.matrix_world.copy()
+    self.bm = bmesh.from_edit_mesh(self.obj.data)
+    
+    self.list_vertices = []
+    self.list_vertices_co = []
+    self.bool_constrain = False
+    self.bool_update = False
+    self.vector_constrain = None
+    self.keytab = False
+    self.keyf8 = False
+    self.type = 'OUT'
+    self.len = 0
+    self.length_entered = ""
+    self._handle = bpy.types.SpaceView3D.draw_handler_add(draw_callback_px, (self, context), 'WINDOW', 'POST_VIEW')
+    context.window_manager.modal_handler_add(self)
+    
+    self.out_color = context.user_preferences.addons[__name__].preferences.out_color
+    self.face_color = context.user_preferences.addons[__name__].preferences.face_color
+    self.edge_color = context.user_preferences.addons[__name__].preferences.edge_color
+    self.vert_color = context.user_preferences.addons[__name__].preferences.vert_color
+    self.center_color = context.user_preferences.addons[__name__].preferences.center_color
+    self.perpendicular_color = context.user_preferences.addons[__name__].preferences.perpendicular_color
+    self.constrain_shift_color = context.user_preferences.addons[__name__].preferences.constrain_shift_color
+
+    self.axis_x_color = tuple(context.user_preferences.themes[0].user_interface.axis_x)
+    self.axis_y_color = tuple(context.user_preferences.themes[0].user_interface.axis_y)
+    self.axis_z_color = tuple(context.user_preferences.themes[0].user_interface.axis_z)
+
+    self.outer_verts = context.user_preferences.addons[__name__].preferences.outer_verts
+    self.snap_to_grid = context.user_preferences.addons[__name__].preferences.increments_grid
+    relative_scale = context.user_preferences.addons[__name__].preferences.relative_scale
+    grid = context.scene.unit_settings.scale_length/context.space_data.grid_scale
+    self.scale = grid/relative_scale
+
+    self.unit_system = context.scene.unit_settings.system
+    incremental = context.user_preferences.addons[__name__].preferences.incremental
+    self.incremental = bpy.utils.units.to_value(self.unit_system, 'LENGTH', str(incremental))
 
 def draw_callback_px(self, context):
     # draw 3d point OpenGL in the 3D View
@@ -468,15 +579,17 @@ def draw_callback_px(self, context):
             Color4f = self.center_color
         elif self.type == 'PERPENDICULAR':
             Color4f = self.perpendicular_color
-
+            
     bgl.glColor4f(*Color4f)
     bgl.glDepthRange(0,0)    
     bgl.glPointSize(10)    
     bgl.glBegin(bgl.GL_POINTS)
     bgl.glVertex3f(*self.location)
     bgl.glEnd()
+    bgl.glDisable(bgl.GL_BLEND)
 
     # draw 3d line OpenGL in the 3D View
+    bgl.glEnable(bgl.GL_BLEND)
     bgl.glDepthRange(0,0.9999)
     bgl.glColor4f(1.0, 0.8, 0.0, 1.0)    
     bgl.glLineWidth(2)    
@@ -486,7 +599,7 @@ def draw_callback_px(self, context):
         bgl.glVertex3f(*vert_co)        
     bgl.glVertex3f(*self.location)        
     bgl.glEnd()
-
+        
     # restore opengl defaults
     bgl.glDepthRange(0,1)
     bgl.glPointSize(1)
@@ -494,7 +607,7 @@ def draw_callback_px(self, context):
     bgl.glDisable(bgl.GL_BLEND)
     bgl.glDisable(bgl.GL_LINE_STIPPLE)
     bgl.glColor4f(0.0, 0.0, 0.0, 1.0)
-
+    
     a = ""
     if self.list_vertices_co != [] and self.length_entered == "":
         length = self.len
@@ -506,71 +619,29 @@ def draw_callback_px(self, context):
 
     context.area.header_text_set("hit: %.3f %.3f %.3f %s" % (self.location[0], self.location[1], self.location[2], a))
 
-class Constrain:
-    keys = {
-        'X': Vector((1,0,0)),
-        'Y': Vector((0,1,0)),
-        'Z': Vector((0,0,1)),
-        'RIGHT_SHIFT': 'shift',
-        'LEFT_SHIFT': 'shift',
-        #'LEFT_CTRL': 'Ctrl'
-        }
-
-    def __init__(self, bool_constrain = False, vector_constrain = None):
-        self.bool_constrain = bool_constrain
-        self.vector_constrain = vector_constrain
-
-    def modal(self, context, event):
-        if event.value == 'PRESS':
-            if self.vector_constrain == self.keys[event.type] or self.bool_constrain == False:
-                self.bool_constrain = self.bool_constrain == False
-                self.vector_constrain = self.keys[event.type]
-
-            elif event.shift:
-                if self.vector_constrain not in self.keys.values():
-                    self.bool_constrain = self.bool_constrain == False
-                    self.vector_constrain = self.keys[event.type]
-
-            else:
-                self.vector_constrain = self.keys[event.type]
-
-        return self.bool_constrain, self.vector_constrain
-
-class CharMap:
-    ascii = {
-        ".", ",", "-", "+", "1", "2", "3",
-        "4", "5", "6", "7", "8", "9", "0",
-        " ", "/", "*", "'", "\""
-        #"="
-        }
-    type = {
-        'BACK_SPACE', 'DEL'
-        }
-
-    def __init__(self, length_entered = ""):
-        self.length_entered = length_entered
-
-    def modal(self, context, event):
-        c = event.ascii
-        if c == ",":
-            c = "."
-        self.length_entered += c
-        if event.type in self.type and len(self.length_entered) >= 1:
-            self.length_entered = self.length_entered[:-1]
-
-        return self.length_entered
-
 class MESH_OT_snap_utilities_line(bpy.types.Operator):
     """ Draw edges. Connect them to split faces."""
     bl_idname = "mesh.snap_utilities_line"
     bl_label = "Line Tool"
     bl_options = {'REGISTER', 'UNDO'}
-
+    
     def modal(self, context, event):
         if context.area:
             context.area.tag_redraw()
+            
+        if event.ctrl and event.type == 'Z' and event.value == 'PRESS':
+            bpy.ops.ed.undo()
+            self.bool_constrain = False
+            self.list_vertices_co = []
+            self.list_vertices = []
+            self.list_edges = []
+            self.list_faces = []
+            self.obj = bpy.context.active_object
+            self.obj_matrix = self.obj.matrix_world.copy()
+            self.bm = bmesh.from_edit_mesh(self.obj.data)
+            return {'RUNNING_MODAL'}
 
-        if event.type in Constrain.keys:
+        elif event.type in Constrain.keys:
             Constrain2 = Constrain(self.bool_constrain, self.vector_constrain)
             self.bool_constrain, self.vector_constrain = Constrain2.modal(context, event)
             if self.vector_constrain == 'shift':
@@ -587,7 +658,6 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 self.bool_update = True
             else:
                 self.bool_update = False
-
             try:
                 self.geom = self.bm.select_history[0]
             except: # IndexError or AttributeError:
@@ -595,20 +665,23 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
             x, y = (event.mouse_region_x, event.mouse_region_y)
             if self.geom != None:
+                self.lastgeom = self.geom
                 bpy.ops.mesh.select_all(action='DESELECT')
 
-            #bpy.ops.view3d.select(object=True, location=(x, y))
-            bpy.ops.view3d.select(object=False, location=(x, y))
-            if self.list_vertices_co != []:
+            bpy.ops.view3d.select(location=(x, y))
+
+            if self.list_vertices != []:
                 bm_vert_to_perpendicular = self.list_vertices[-1]
             else:
                 bm_vert_to_perpendicular = None
-
+            
+            
             outer_verts = self.outer_verts and not self.keytab
 
             self.location, self.type = SnapUtilities(self, context, self.obj_matrix,
                     self.geom, self.bool_update, bm_vert_to_perpendicular, (x, y), 
-                    self.bool_constrain, self.vector_constrain, outer_verts, self.incremental)
+                    self.bool_constrain, self.vector_constrain, outer_verts,
+                    ignore_obj = None, increm = self.incremental)
 
             if self.keyf8 and self.list_vertices_co != []:
                 lloc = self.list_vertices_co[-1]
@@ -626,23 +699,11 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 self.vector_constrain = vec
 
         elif event.value == 'PRESS':
-            if event.ctrl and event.type == 'Z':
-                bpy.ops.ed.undo()
-                self.bool_constrain = False
-                self.list_vertices_co = []
-                self.list_vertices = []
-                self.list_edges = []
-                self.list_faces = []
-                self.obj = bpy.context.active_object
-                self.obj_matrix = self.obj.matrix_world.copy()
-                self.bm = bmesh.from_edit_mesh(self.obj.data)
-                return {'RUNNING_MODAL'}
-
             if event.ascii in CharMap.ascii or event.type in CharMap.type:
                 CharMap2 = CharMap(self.length_entered)
                 self.length_entered = CharMap2.modal(context, event)
                 #print(self.length_entered)
-
+                
             elif event.type == 'LEFTMOUSE':
                 # SNAP 2D
                 snap_3d = self.location
@@ -672,7 +733,10 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 self.keyf8 = self.keyf8 == False
 
         elif event.value == 'RELEASE':
-            if event.type in {'RET', 'NUMPAD_ENTER'}:
+            if event.type in {'LEFT_CTRL', 'RIGHT_CTRL'}:
+                self.bool_constrain = False
+
+            elif event.type in {'RET', 'NUMPAD_ENTER'}:
                 if self.length_entered != "" and self.list_vertices_co != []:
                     try:
                         text_value = bpy.utils.units.to_value(self.unit_system, 'LENGTH', self.length_entered)
@@ -701,7 +765,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     self.list_vertices_co = []
                     self.list_faces = []
 
-        navigation(self, context, event) 
+        navigation(self, context, event)
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):        
@@ -715,24 +779,24 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 context.scene.objects.active = obj
 
             bgl.glEnable(bgl.GL_POINT_SMOOTH)
-            self.is_editmode = context.object.data.is_editmode
+            self.is_editmode = bpy.context.object.data.is_editmode
             bpy.ops.object.mode_set(mode='EDIT')
             context.space_data.use_occlude_geometry = True
             self.uinfo = getUnitsInfo()
 
             self.use_rotate_around_active = context.user_preferences.view.use_rotate_around_active
             context.user_preferences.view.use_rotate_around_active = True
-
+            
             self.select_mode = context.tool_settings.mesh_select_mode[:]
             context.tool_settings.mesh_select_mode = (True, True, True)
-
+            
             self.region = context.region
             self.rv3d = context.region_data
             self.rotMat = self.rv3d.view_matrix.copy()
             self.obj = bpy.context.active_object
             self.obj_matrix = self.obj.matrix_world.copy()
             self.bm = bmesh.from_edit_mesh(self.obj.data)
-
+            
             self.list_vertices = []
             self.list_vertices_co = []
             self.bool_constrain = False
@@ -740,10 +804,12 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.vector_constrain = None
             self.keytab = False
             self.keyf8 = False
+            self.type = 'OUT'
+            self.len = 0
             self.length_entered = ""
             self._handle = bpy.types.SpaceView3D.draw_handler_add(draw_callback_px, (self, context), 'WINDOW', 'POST_VIEW')
             context.window_manager.modal_handler_add(self)
-
+            
             self.out_color = context.user_preferences.addons[__name__].preferences.out_color
             self.face_color = context.user_preferences.addons[__name__].preferences.face_color
             self.edge_color = context.user_preferences.addons[__name__].preferences.edge_color
@@ -756,14 +822,17 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.axis_y_color = tuple(context.user_preferences.themes[0].user_interface.axis_y)
             self.axis_z_color = tuple(context.user_preferences.themes[0].user_interface.axis_z)
 
-            self.create_face = context.user_preferences.addons[__name__].preferences.create_face
             self.intersect = context.user_preferences.addons[__name__].preferences.intersect
+            self.create_face = context.user_preferences.addons[__name__].preferences.create_face
             self.outer_verts = context.user_preferences.addons[__name__].preferences.outer_verts
+            self.snap_to_grid = context.user_preferences.addons[__name__].preferences.increments_grid
+            relative_scale = context.user_preferences.addons[__name__].preferences.relative_scale
+            grid = context.scene.unit_settings.scale_length/context.space_data.grid_scale
+            self.scale = grid/relative_scale
 
             self.unit_system = context.scene.unit_settings.system
             incremental = context.user_preferences.addons[__name__].preferences.incremental
             self.incremental = bpy.utils.units.to_value(self.unit_system, 'LENGTH', str(incremental))
-
             return {'RUNNING_MODAL'}
         else:
             self.report({'WARNING'}, "Active space must be a View3d")
@@ -797,6 +866,9 @@ class PanelSnapUtilities(bpy.types.Panel) :
             #box.label(text="Snap Items:")
             box.prop(addon_prefs, "outer_verts")
             box.prop(addon_prefs, "incremental")
+            box.prop(addon_prefs, "increments_grid")
+            if addon_prefs.increments_grid:
+                box.prop(addon_prefs, "relative_scale")
             box.label(text="Line Tool:")
             box.prop(addon_prefs, "intersect")
             box.prop(addon_prefs, "create_face")
@@ -839,6 +911,11 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
             name="Expand",
             description="Expand, to display the settings",
             default=False)
+            
+    increments_grid = bpy.props.BoolProperty(
+            name="Increments of Grid",
+            description="Snap to increments of grid",
+            default=False)
 
     category = bpy.props.StringProperty(
             name="Category",
@@ -850,6 +927,14 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
             name="Incremental",
             description="Snap in defined increments",
             default=0,
+            min=0,
+            step=1,
+            precision=3)
+
+    relative_scale = bpy.props.FloatProperty(
+            name="Relative Scale",
+            description="Value that divides the global scale.",
+            default=1,
             min=0,
             step=1,
             precision=3)
@@ -889,6 +974,10 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
         col.prop(self, "category", text="")
         #col.label(text="Snap Items:")
         col.prop(self, "incremental")
+        col.prop(self, "increments_grid")
+        if self.increments_grid:
+            col.prop(self, "relative_scale")
+
         col.prop(self, "outer_verts")
         row.separator()
 
