@@ -352,15 +352,16 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         self.list_edges.append(bm_geom)
         vector_p0_l = (bm_geom.verts[0].co-location)
         vector_p1_l = (bm_geom.verts[1].co-location)
-        cross = vector_p0_l.cross(vector_p1_l)
+        cross = vector_p0_l.cross(vector_p1_l)/bm_geom.calc_length()
 
-        if cross < Vector((0.001,0,0)): # or round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
+        if cross < Vector((0.01,0,0)): # or round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
             factor = vector_p0_l.length/bm_geom.calc_length()
             vertex0 = bmesh.utils.edge_split(bm_geom, bm_geom.verts[0], factor)
             self.list_vertices.append(vertex0[1])
             #self.list_edges.append(vertex0[0])
 
         else: # constrain point is near
+            #print(cross.length)
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
             self.list_vertices.append(vertices['vert'][0])
 
