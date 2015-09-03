@@ -22,8 +22,8 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (4, 7),
-    "blender": (2, 74, 0),
+    "version": (5, 0),
+    "blender": (2, 75, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
     "wiki_url" : "http://blenderartists.org/forum/showthread.php?363859-Addon-CAD-Snap-Utilities",
@@ -31,15 +31,14 @@ bl_info = {
     
 import bpy, bgl, bmesh, mathutils, math
 #from space_view3d_panel_measure import getUnitsInfo, convertDistance
-from mathutils import Vector, Matrix
-from bpy_extras import view3d_utils
+from mathutils import Vector
+from mathutils.geometry import (
+    intersect_point_line,
+    intersect_line_line,
+    intersect_line_plane,
+    intersect_ray_tri)
 
-PRECISION = 5
-
-def getUnitsInfo():
-    scale = bpy.context.scene.unit_settings.scale_length
-    unit_system = bpy.context.scene.unit_settings.system
-    separate_units = bpy.context.scene.unit_settings.use_separate
+def get_units_info(scale, unit_system, separate_units):
     if unit_system == 'METRIC':
             scale_steps = ((1000, 'km'), (1, 'm'), (1 / 100, 'cm'),
                 (1 / 1000, 'mm'), (1 / 1000000, '\u00b5m'))
@@ -53,7 +52,7 @@ def getUnitsInfo():
 
     return (scale, scale_steps, separate_units)
 
-def convertDistance(val, units_info):
+def convert_distance(val, units_info, PRECISION = 5):
     scale, scale_steps, separate_units = units_info
     sval = val * scale
     idx = 0
@@ -80,46 +79,6 @@ def convertDistance(val, units_info):
                     idx += 1
     return dval
 
-def navigation(self, context, event):
-    #TO DO:
-    #'View Orbit', 'View Pan', 'NDOF Orbit View', 'NDOF Pan View'
-    rv3d = context.region_data
-    if not hasattr(self, 'navigation_cache'): # or self.navigation_cache == False:
-        self.navigation_cache = True
-        self.keys_rotate = set()
-        self.keys_move = set()
-        self.keys_zoom = set()
-        for key in context.window_manager.keyconfigs.user.keymaps['3D View'].keymap_items:
-            if key.idname == 'view3d.rotate':
-                #self.keys_rotate[key.id]={'Alt': key.alt, 'Ctrl': key.ctrl, 'Shift':key.shift, 'Type':key.type, 'Value':key.value}
-                self.keys_rotate.add((key.alt, key.ctrl, key.shift, key.type, key.value))
-            if key.idname == 'view3d.move':
-                self.keys_move.add((key.alt, key.ctrl, key.shift, key.type, key.value))
-            if key.idname == 'view3d.zoom':
-                self.keys_zoom.add((key.alt, key.ctrl, key.shift, key.type, key.value, key.properties.delta))
-                if key.type == 'WHEELINMOUSE':
-                    self.keys_zoom.add((key.alt, key.ctrl, key.shift, 'WHEELDOWNMOUSE', key.value, key.properties.delta))
-                if key.type == 'WHEELOUTMOUSE':
-                    self.keys_zoom.add((key.alt, key.ctrl, key.shift, 'WHEELUPMOUSE', key.value, key.properties.delta))
-
-    evkey = (event.alt, event.ctrl, event.shift, event.type, event.value)
-    if evkey in self.keys_rotate:
-        bpy.ops.view3d.rotate('INVOKE_DEFAULT')
-    elif evkey in self.keys_move:
-        if event.shift and self.bool_constrain and (1 not in self.vector_constrain):
-                self.bool_constrain = False
-        bpy.ops.view3d.move('INVOKE_DEFAULT')
-    else:
-        for key in self.keys_zoom:
-            if evkey == key[0:5]:
-                delta = key[5]
-                if delta == 0:
-                    bpy.ops.view3d.zoom('INVOKE_DEFAULT')
-                else:
-                    rv3d.view_distance += delta*rv3d.view_distance/6
-                    rv3d.view_location -= delta*(self.location - rv3d.view_location)/6
-                break
-
 def location_3d_to_region_2d(region, rv3d, coord):
     prj = rv3d.perspective_matrix * Vector((coord[0], coord[1], coord[2], 1.0))
     width_half = region.width / 2.0
@@ -127,6 +86,44 @@ def location_3d_to_region_2d(region, rv3d, coord):
     return Vector((width_half + width_half * (prj.x / prj.w),
                    height_half + height_half * (prj.y / prj.w),
                    ))
+
+def region_2d_to_orig_and_view_vector(region, rv3d, coord, clamp=None):
+    viewinv = rv3d.view_matrix.inverted()
+    persinv = rv3d.perspective_matrix.inverted()
+
+    dx = (2.0 * coord[0] / region.width) - 1.0
+    dy = (2.0 * coord[1] / region.height) - 1.0
+
+    if rv3d.is_perspective:
+        origin_start = viewinv.translation.copy()
+
+        out = Vector((dx, dy, -0.5))
+
+        w = out.dot(persinv[3].xyz) + persinv[3][3]
+
+        view_vector = ((persinv * out) / w) - origin_start
+    else:
+        view_vector = -viewinv.col[2].xyz
+
+        origin_start = ((persinv.col[0].xyz * dx) +
+                        (persinv.col[1].xyz * dy) +
+                        viewinv.translation)
+
+        if clamp != 0.0:
+            if rv3d.view_perspective != 'CAMERA':
+                # this value is scaled to the far clip already
+                origin_offset = persinv.col[2].xyz
+                if clamp is not None:
+                    if clamp < 0.0:
+                        origin_offset.negate()
+                        clamp = -clamp
+                    if origin_offset.length > clamp:
+                        origin_offset.length = clamp
+
+                origin_start -= origin_offset
+
+    view_vector.normalize()
+    return origin_start, view_vector
 
 def out_Location(rv3d, region, orig, vector):
     view_matrix = rv3d.view_matrix
@@ -142,14 +139,30 @@ def out_Location(rv3d, region, orig, vector):
         hit = Vector((0,0,0))
     return hit
 
-def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_perp, mcursor, bool_constrain, vector_constrain, outer_verts, ignore_obj = None, increm = 0):
+def snap_utilities(self,
+                   context,
+                   obj_matrix_world,
+                   bm_geom,
+                   bool_update,
+                   mcursor,
+                   outer_verts = False,
+                   constrain = None,
+                   previous_vert = None,
+                   ignore_obj = None,
+                   increment = 0.0):
+
     rv3d = context.region_data
     region = context.region
-    if not hasattr(self, 'const'):
-        self.const = None
+    is_increment = False
 
-    if bool_constrain == False and self.const != None:
-        self.const = None
+    if not hasattr(self, 'snap_cache'):
+        self.snap_cache = True
+        self.type = 'OUT'
+        self.bvert = None
+        self.bedge = None
+        self.bface = None
+        self.hit = False
+        self.out_obj = None
 
     if bool_update:
         #self.bvert = None
@@ -157,33 +170,23 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
         #self.bface = None
 
     if isinstance(bm_geom, bmesh.types.BMVert):
-        if not hasattr(self, 'type') or self.type != 'VERT':
-            self.is_incremental = False
-            self.type = 'VERT'
+        self.type = 'VERT'
 
-        if not hasattr(self, 'bvert') or self.bvert != bm_geom:
+        if self.bvert != bm_geom:
             self.bvert = bm_geom
             self.vert = obj_matrix_world * self.bvert.co
             #self.Pvert = location_3d_to_region_2d(region, rv3d, self.vert)
-
-        if bool_constrain == True:
-            if self.const == None:
-                if vert_perp != None:
-                    self.const = obj_matrix_world*vert_perp.co
-                else:
-                    self.const = self.vert
-            #location = mathutils.geometry.intersect_point_line(self.vert, self.const, (self.const+vector_constrain))[0]
-            location = (self.vert-self.const).project(vector_constrain) + self.const
+        
+        if constrain:
+            #self.location = (self.vert-self.const).project(vector_constrain) + self.const
+            location = intersect_point_line(self.vert, constrain[0], constrain[1])
+            #factor = location[1]
+            self.location = location[0]
         else:
-            location = self.vert
+            self.location = self.vert
 
     elif isinstance(bm_geom, bmesh.types.BMEdge):
-        if vert_perp in bm_geom.verts:
-            self.is_incremental = True
-        else:
-            self.is_incremental = False
-
-        if not hasattr(self, 'bedge') or self.bedge != bm_geom:
+        if self.bedge != bm_geom:
             self.bedge = bm_geom
             self.vert0 = obj_matrix_world*self.bedge.verts[0].co
             self.vert1 = obj_matrix_world*self.bedge.verts[1].co
@@ -191,132 +194,115 @@ def SnapUtilities(self, context, obj_matrix_world, bm_geom, bool_update, vert_pe
             self.Pcent = location_3d_to_region_2d(region, rv3d, self.po_cent)
             self.Pvert0 = location_3d_to_region_2d(region, rv3d, self.vert0)
             self.Pvert1 = location_3d_to_region_2d(region, rv3d, self.vert1)
+        
+            if previous_vert and previous_vert not in self.bedge.verts:
+                    pvert_co = obj_matrix_world*previous_vert.co
+                    point_perpendicular = intersect_point_line(pvert_co, self.vert0, self.vert1)
+                    self.po_perp = point_perpendicular[0]
+                    #factor = point_perpendicular[1] 
+                    self.Pperp = location_3d_to_region_2d(region, rv3d, self.po_perp)
 
-            if vert_perp != None and vert_perp not in self.bedge.verts:
-                vperp_co = obj_matrix_world*vert_perp.co
-                point_perpendicular = mathutils.geometry.intersect_point_line(vperp_co, self.vert0, self.vert1)
-                self.po_perp = point_perpendicular[0]
-                self.Pperp = location_3d_to_region_2d(region, rv3d, self.po_perp)
-
-        if bool_constrain == True:
-            self.type = 'EDGE'
-            if self.const == None:
-                if vert_perp != None:
-                    self.const = obj_matrix_world*vert_perp.co
-                else:
-                    self.const = self.po_cent
-
-            location = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), self.vert0, self.vert1)
+        if constrain:
+            location = intersect_line_line(constrain[0], constrain[1], self.vert0, self.vert1)
             if location == None:
-                orig = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
-                view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
+                is_increment = True
+                orig, view_vector = region_2d_to_orig_and_view_vector(region, rv3d, mcursor)
                 end = orig + view_vector
-                location = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)
-            location = location[0]
+                location = intersect_line_line(constrain[0], constrain[1], orig, end)
+            self.location = location[0]
+        
+        elif hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor[0]) < 10 and abs(self.Pperp[1]-mcursor[1]) < 10:
+            self.type = 'PERPENDICULAR'
+            self.location = self.po_perp
+
+        elif abs(self.Pcent[0]-mcursor[0]) < 10 and abs(self.Pcent[1]-mcursor[1]) < 10:
+            self.type = 'CENTER'
+            self.location = self.po_cent
 
         else:
-            if hasattr(self, 'Pperp') and abs(self.Pperp[0]-mcursor[0]) < 10 and abs(self.Pperp[1]-mcursor[1]) < 10:
-                self.type = 'PERPENDICULAR'
-                location = self.po_perp
-
-            elif abs(self.Pcent[0]-mcursor[0]) < 10 and abs(self.Pcent[1]-mcursor[1]) < 10:
-                self.type = 'CENTER'
-                location = self.po_cent
-
-            else:
-                self.type = 'EDGE'
-                orig = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
-                view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
-                end = orig + view_vector
-                location = mathutils.geometry.intersect_line_line(self.vert0, self.vert1, orig, end)[0]
+            if increment and previous_vert in self.bedge.verts:
+                is_increment = True
+            self.type = 'EDGE'
+            orig, view_vector = region_2d_to_orig_and_view_vector(region, rv3d, mcursor)
+            end = orig + view_vector
+            self.location = intersect_line_line(self.vert0, self.vert1, orig, end)[0]
 
     elif isinstance(bm_geom, bmesh.types.BMFace):
-        if not hasattr(self, 'type') or self.type != 'FACE':
-            self.is_incremental = True
-            self.type = 'FACE'
+        is_increment = True
+        self.type = 'FACE'
 
-        if not hasattr(self, 'bface') or self.bface != bm_geom:
+        if self.bface != bm_geom:
             self.bface = bm_geom
             self.face_center = obj_matrix_world*bm_geom.calc_center_median()
             self.face_normal = bm_geom.normal*obj_matrix_world.inverted()
 
-        orig = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
-        view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
+        orig, view_vector = region_2d_to_orig_and_view_vector(region, rv3d, mcursor)
         end = orig + view_vector
-        if bool_constrain == True:
-            if self.const == None:
-                if vert_perp != None:
-                    self.const = obj_matrix_world*vert_perp.co
-                else:
-                    self.const = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
-            location = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)[0]
-        else:
-            location = mathutils.geometry.intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
+        location = intersect_line_plane(orig, end, self.face_center, self.face_normal, False)
+        if constrain:
+            is_increment = False
+            location = intersect_point_line(location, constrain[0], constrain[1])[0]
+
+        self.location = location
 
     else:
+        is_increment = True
         self.type = 'OUT'
-        self.is_incremental = True
-        orig = view3d_utils.region_2d_to_origin_3d(region, rv3d, mcursor)
-        view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mcursor)
+
+        orig, view_vector = region_2d_to_orig_and_view_vector(region, rv3d, mcursor)
         end = orig + view_vector * 1000
-        scene = bpy.context.scene
-        result, object, matrix, location, normal = scene.ray_cast(orig, end)
-        if result and object != ignore_obj:
+
+        if not outer_verts or self.out_obj == None:
+            result, self.out_obj, self.out_mat, self.location, normal = context.scene.ray_cast(orig, end)
+            self.out_mat_inv = self.out_mat.inverted()
+            #print(self.location)
+
+        if self.out_obj and self.out_obj != ignore_obj:
             self.type = 'FACE'
             if outer_verts:
-                try:
-                    # get the ray relative to the object
-                    matrix_inv = matrix.inverted()
-                    ray_origin_obj = matrix_inv * orig
-                    ray_target_obj = matrix_inv * end
-                    location, normal, face_index = object.ray_cast(ray_origin_obj, ray_target_obj)
-                    location = matrix*location
-                    verts = object.data.polygons[face_index].vertices
-                    v_dist = 100
-
-                    for i in verts:
-                        v_co = matrix*object.data.vertices[i].co
-                        v_2d = location_3d_to_region_2d(region, rv3d, v_co)
-                        dist = (Vector(mcursor)-v_2d).length_squared
-                        if dist < v_dist:
-                            self.type = 'VERT'
-                            self.is_incremental = False
-                            v_dist = dist
-                            location = v_co
-                except:
-                    print("fail")
-        else:
-            location = out_Location(rv3d, region, orig, view_vector)
-            if self.snap_to_grid:
-                scale = 1/self.scale
-                rd = bpy.utils.units.to_value(self.unit_system, 'LENGTH', str(scale))
-                loc = location/rd
-                location = Vector((round(loc.x),
-                                   round(loc.y),
-                                   round(loc.z)))*rd
-
-        if bool_constrain == True:
-            if self.const == None:
-                if vert_perp != None:
-                    self.const = obj_matrix_world*vert_perp.co
+                # get the ray relative to the self.out_obj
+                ray_origin_obj = self.out_mat_inv * orig
+                ray_target_obj = self.out_mat_inv * end
+                location, normal, face_index = self.out_obj.ray_cast(ray_origin_obj, ray_target_obj)
+                if face_index == -1:
+                    self.out_obj = None
                 else:
-                    self.const = location
-            if self.type == 'VERT':
-                self.vert = location
-                location = mathutils.geometry.intersect_point_line(location, self.const, (self.const+vector_constrain))[0]
-            else:
-                location = mathutils.geometry.intersect_line_line(self.const, (self.const+vector_constrain), orig, end)[0]
+                    self.location = self.out_mat*location
+                    try:
+                        verts = self.out_obj.data.polygons[face_index].vertices
+                        v_dist = 100
 
-    if vert_perp != None:
-        lv = obj_matrix_world*vert_perp.co
-        rel = location-lv
-        if increm != 0 and self.is_incremental:
-            self.len = round((1/increm)*rel.length)*increm
-            location = self.len*rel.normalized() + lv
+                        for i in verts:
+                            v_co = self.out_mat*self.out_obj.data.vertices[i].co
+                            v_2d = location_3d_to_region_2d(region, rv3d, v_co)
+                            dist = (Vector(mcursor)-v_2d).length_squared
+                            if dist < v_dist:
+                                is_increment = False
+                                self.type = 'VERT'
+                                v_dist = dist
+                                self.location = v_co
+                    except:
+                        print('Fail')
+            if constrain:
+                is_increment = False
+                self.preloc = self.location
+                self.location = intersect_point_line(self.preloc, constrain[0], constrain[1])[0]
         else:
-            self.len = rel.length
+            if constrain:
+                self.location = intersect_line_line(constrain[0], constrain[1], orig, end)[0]
+            else:
+                self.location = out_Location(rv3d, region, orig, view_vector)
 
-    return location, self.type
+    if previous_vert:
+        pvert_co = obj_matrix_world*previous_vert.co
+        vec = self.location - pvert_co
+        if is_increment and increment:
+            pvert_co = obj_matrix_world*previous_vert.co
+            vec = self.location - pvert_co
+            self.len = round((1/increment)*vec.length)*increment
+            self.location = self.len*vec.normalized() + pvert_co
+        else:
+            self.len = vec.length
 
 def get_isolated_edges(bmvert):
     linked = [c for c in bmvert.link_edges[:] if c.link_faces[:] == []]
@@ -327,8 +313,8 @@ def get_isolated_edges(bmvert):
     return linked
 
 def draw_line(self, obj, Bmesh, bm_geom, location):
-    if not hasattr(self, 'list_vertices'):
-        self.list_vertices = []
+    if not hasattr(self, 'list_verts'):
+        self.list_verts = []
 
     if not hasattr(self, 'list_edges'):
         self.list_edges = []
@@ -338,15 +324,15 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
 
     if bm_geom == None:
         vertices = (bmesh.ops.create_vert(Bmesh, co=(location)))
-        self.list_vertices.append(vertices['vert'][0])
+        self.list_verts.append(vertices['vert'][0])
 
     elif isinstance(bm_geom, bmesh.types.BMVert):
         if (bm_geom.co - location).length < .01:
-            if self.list_vertices == [] or self.list_vertices[-1] != bm_geom:
-                self.list_vertices.append(bm_geom)
+            if self.list_verts == [] or self.list_verts[-1] != bm_geom:
+                self.list_verts.append(bm_geom)
         else:
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
-            self.list_vertices.append(vertices['vert'][0])
+            self.list_verts.append(vertices['vert'][0])
         
     elif isinstance(bm_geom, bmesh.types.BMEdge):
         self.list_edges.append(bm_geom)
@@ -357,22 +343,22 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
         if cross < Vector((0.001,0,0)): # or round(vector_p0_l.angle(vector_p1_l), 2) == 3.14:
             factor = vector_p0_l.length/bm_geom.calc_length()
             vertex0 = bmesh.utils.edge_split(bm_geom, bm_geom.verts[0], factor)
-            self.list_vertices.append(vertex0[1])
+            self.list_verts.append(vertex0[1])
             #self.list_edges.append(vertex0[0])
 
         else: # constrain point is near
             vertices = bmesh.ops.create_vert(Bmesh, co=(location))
-            self.list_vertices.append(vertices['vert'][0])
+            self.list_verts.append(vertices['vert'][0])
 
     elif isinstance(bm_geom, bmesh.types.BMFace):
         self.list_faces.append(bm_geom)
         vertices = (bmesh.ops.create_vert(Bmesh, co=(location)))
-        self.list_vertices.append(vertices['vert'][0])
+        self.list_verts.append(vertices['vert'][0])
     
     # draw, split and create face
-    if len(self.list_vertices) >= 2:
-        V1 = self.list_vertices[-2]
-        V2 = self.list_vertices[-1]
+    if len(self.list_verts) >= 2:
+        V1 = self.list_verts[-2]
+        V2 = self.list_verts[-1]
         #V2_link_verts = [x for y in [a.verts for a in V2.link_edges] for x in y if x != V2]
         for edge in V2.link_edges:
             if V1 in edge.verts:
@@ -425,7 +411,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
             ed_list = self.list_edges.copy()
             for edge in V2.link_edges:
                 for vert in edge.verts:
-                    if vert in self.list_vertices:
+                    if vert in self.list_verts:
                         ed_list.append(edge)
                         for edge in get_isolated_edges(V2):
                             if edge not in ed_list:
@@ -435,36 +421,7 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                         break
             #print('face created')
 
-    return [obj.matrix_world*a.co for a in self.list_vertices]
-    
-class Constrain:
-    keys = {
-        'X': Vector((1,0,0)),
-        'Y': Vector((0,1,0)),
-        'Z': Vector((0,0,1)),
-        'RIGHT_SHIFT': 'shift',
-        'LEFT_SHIFT': 'shift',
-        }
-
-    def __init__(self, bool_constrain = False, vector_constrain = None):
-        self.bool_constrain = bool_constrain
-        self.vector_constrain = vector_constrain
-
-    def modal(self, context, event):
-        if event.value == 'PRESS':
-            if self.vector_constrain == self.keys[event.type] or self.bool_constrain == False:
-                self.bool_constrain = self.bool_constrain == False
-                self.vector_constrain = self.keys[event.type]
-                
-            elif event.shift:
-                if self.vector_constrain not in self.keys.values():
-                    self.bool_constrain = self.bool_constrain == False
-                    self.vector_constrain = self.keys[event.type]
-                    
-            else:
-                self.vector_constrain = self.keys[event.type]
-                    
-        return self.bool_constrain, self.vector_constrain
+    return [obj.matrix_world*a.co for a in self.list_verts]
     
 class CharMap:
     ascii = {
@@ -490,85 +447,123 @@ class CharMap:
 
         return self.length_entered
 
-def draw_callback_px(self, context):
-    # draw 3d point OpenGL in the 3D View
-    bgl.glEnable(bgl.GL_BLEND)
-
-    if self.bool_constrain:
-        vc = self.vector_constrain
-        if hasattr(self, 'vert') and self.type == 'VERT':
-            bgl.glColor4f(1.0,1.0,1.0,0.5)
-            bgl.glDepthRange(0,0)
-            bgl.glPointSize(5)
-            bgl.glBegin(bgl.GL_POINTS)
-            bgl.glVertex3f(*self.vert)
-            bgl.glEnd()
-        if (abs(vc.x),vc.y,vc.z) == (1,0,0):
-            Color4f = (self.axis_x_color + (1.0,))
-        elif (vc.x,abs(vc.y),vc.z) == (0,1,0):
-            Color4f = (self.axis_y_color + (1.0,))
-        elif (vc.x,vc.y,abs(vc.z)) == (0,0,1):
-            Color4f = (self.axis_z_color + (1.0,))
-        else:
-            Color4f = self.constrain_shift_color
-    else:
-        if self.type == 'OUT':
-            Color4f = self.out_color 
-        elif self.type == 'FACE':
-            Color4f = self.face_color
-        elif self.type == 'EDGE':
-            Color4f = self.edge_color
-        elif self.type == 'VERT':
-            Color4f = self.vert_color
-        elif self.type == 'CENTER':
-            Color4f = self.center_color
-        elif self.type == 'PERPENDICULAR':
-            Color4f = self.perpendicular_color
-            
-    bgl.glColor4f(*Color4f)
-    bgl.glDepthRange(0,0)    
-    bgl.glPointSize(10)    
-    bgl.glBegin(bgl.GL_POINTS)
-    bgl.glVertex3f(*self.location)
-    bgl.glEnd()
-    bgl.glDisable(bgl.GL_BLEND)
-
-    # draw 3d line OpenGL in the 3D View
-    bgl.glEnable(bgl.GL_BLEND)
-    bgl.glDepthRange(0,0.9999)
-    bgl.glColor4f(1.0, 0.8, 0.0, 1.0)    
-    bgl.glLineWidth(2)    
-    bgl.glEnable(bgl.GL_LINE_STIPPLE)
-    bgl.glBegin(bgl.GL_LINE_STRIP)
-    for vert_co in self.list_vertices_co:
-        bgl.glVertex3f(*vert_co)        
-    bgl.glVertex3f(*self.location)        
-    bgl.glEnd()
-        
-    # restore opengl defaults
-    bgl.glDepthRange(0,1)
-    bgl.glPointSize(1)
-    bgl.glLineWidth(1)
-    bgl.glDisable(bgl.GL_BLEND)
-    bgl.glDisable(bgl.GL_LINE_STIPPLE)
-    bgl.glColor4f(0.0, 0.0, 0.0, 1.0)
-    
-    a = ""
-    if self.list_vertices_co != [] and self.length_entered == "":
-        length = self.len
-        #length = (self.list_vertices_co[-1]-self.location).length
-        length = convertDistance(length, self.uinfo)
-        a = 'length: '+ length
-    elif self.list_vertices_co != [] and self.length_entered != "":
-        a = 'length: '+ self.length_entered
-
-    context.area.header_text_set("hit: %.3f %.3f %.3f %s" % (self.location[0], self.location[1], self.location[2], a))
-
-class MESH_OT_snap_utilities_line(bpy.types.Operator):
+class SnapUtilitiesLine(bpy.types.Operator):
     """ Draw edges. Connect them to split faces."""
     bl_idname = "mesh.snap_utilities_line"
     bl_label = "Line Tool"
     bl_options = {'REGISTER', 'UNDO'}
+
+    constrain_keys = {
+        'X': Vector((1,0,0)),
+        'Y': Vector((0,1,0)),
+        'Z': Vector((0,0,1)),
+        'RIGHT_SHIFT': 'shift',
+        'LEFT_SHIFT': 'shift',
+        }
+
+    def modal_navigation(self, context, event):
+        #TO DO:
+        #'View Orbit', 'View Pan', 'NDOF Orbit View', 'NDOF Pan View'
+        rv3d = context.region_data
+        if not hasattr(self, 'navigation_cache'): # or self.navigation_cache == False:
+            #print('update navigation')
+            self.navigation_cache = True
+            self.keys_rotate = set()
+            self.keys_move = set()
+            self.keys_zoom = set()
+            for key in context.window_manager.keyconfigs.user.keymaps['3D View'].keymap_items:
+                if key.idname == 'view3d.rotate':
+                    #self.keys_rotate[key.id]={'Alt': key.alt, 'Ctrl': key.ctrl, 'Shift':key.shift, 'Type':key.type, 'Value':key.value}
+                    self.keys_rotate.add((key.alt, key.ctrl, key.shift, key.type, key.value))
+                if key.idname == 'view3d.move':
+                    self.keys_move.add((key.alt, key.ctrl, key.shift, key.type, key.value))
+                if key.idname == 'view3d.zoom':
+                    self.keys_zoom.add((key.alt, key.ctrl, key.shift, key.type, key.value, key.properties.delta))
+                    if key.type == 'WHEELINMOUSE':
+                        self.keys_zoom.add((key.alt, key.ctrl, key.shift, 'WHEELDOWNMOUSE', key.value, key.properties.delta))
+                    if key.type == 'WHEELOUTMOUSE':
+                        self.keys_zoom.add((key.alt, key.ctrl, key.shift, 'WHEELUPMOUSE', key.value, key.properties.delta))
+
+        evkey = (event.alt, event.ctrl, event.shift, event.type, event.value)
+        if evkey in self.keys_rotate:
+            bpy.ops.view3d.rotate('INVOKE_DEFAULT')
+        elif evkey in self.keys_move:
+            if event.shift and self.vector_constrain and self.vector_constrain[2] in {'RIGHT_SHIFT', 'LEFT_SHIFT', 'shift'}:
+                self.vector_constrain = None
+            bpy.ops.view3d.move('INVOKE_DEFAULT')
+        else:
+            for key in self.keys_zoom:
+                if evkey == key[0:5]:
+                    delta = key[5]
+                    if delta == 0:
+                        bpy.ops.view3d.zoom('INVOKE_DEFAULT')
+                    else:
+                        rv3d.view_distance += delta*rv3d.view_distance/6
+                        rv3d.view_location -= delta*(self.location - rv3d.view_location)/6
+                    break
+
+    def draw_callback_px(self, context):
+        # draw 3d point OpenGL in the 3D View
+        bgl.glEnable(bgl.GL_BLEND)
+
+        if self.vector_constrain:
+            vc = self.vector_constrain
+            if hasattr(self, 'preloc') and self.type in {'VERT', 'FACE'}:
+                bgl.glColor4f(1.0,1.0,1.0,0.5)
+                bgl.glDepthRange(0,0)
+                bgl.glPointSize(5)
+                bgl.glBegin(bgl.GL_POINTS)
+                bgl.glVertex3f(*self.preloc)
+                bgl.glEnd()
+            if vc[2] == 'X':
+                Color4f = (self.axis_x_color + (1.0,))
+            elif vc[2] == 'Y':
+                Color4f = (self.axis_y_color + (1.0,))
+            elif vc[2] == 'Z':
+                Color4f = (self.axis_z_color + (1.0,))
+            else:
+                Color4f = self.constrain_shift_color
+        else:
+            if self.type == 'OUT':
+                Color4f = self.out_color 
+            elif self.type == 'FACE':
+                Color4f = self.face_color
+            elif self.type == 'EDGE':
+                Color4f = self.edge_color
+            elif self.type == 'VERT':
+                Color4f = self.vert_color
+            elif self.type == 'CENTER':
+                Color4f = self.center_color
+            elif self.type == 'PERPENDICULAR':
+                Color4f = self.perpendicular_color
+                
+        bgl.glColor4f(*Color4f)
+        bgl.glDepthRange(0,0)
+        bgl.glPointSize(10)
+        bgl.glBegin(bgl.GL_POINTS)
+        bgl.glVertex3f(*self.location)
+        bgl.glEnd()
+        bgl.glDisable(bgl.GL_BLEND)
+
+        # draw 3d line OpenGL in the 3D View
+        bgl.glEnable(bgl.GL_BLEND)
+        bgl.glDepthRange(0,0.9999)
+        bgl.glColor4f(1.0, 0.8, 0.0, 1.0)    
+        bgl.glLineWidth(2)    
+        bgl.glEnable(bgl.GL_LINE_STIPPLE)
+        bgl.glBegin(bgl.GL_LINE_STRIP)
+        for vert_co in self.list_verts_co:
+            bgl.glVertex3f(*vert_co)        
+        bgl.glVertex3f(*self.location)        
+        bgl.glEnd()
+            
+        # restore opengl defaults
+        bgl.glDepthRange(0,1)
+        bgl.glPointSize(1)
+        bgl.glLineWidth(1)
+        bgl.glDisable(bgl.GL_BLEND)
+        bgl.glDisable(bgl.GL_LINE_STIPPLE)
+        bgl.glColor4f(0.0, 0.0, 0.0, 1.0)
     
     def modal(self, context, event):
         if context.area:
@@ -576,26 +571,15 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             
         if event.ctrl and event.type == 'Z' and event.value == 'PRESS':
             bpy.ops.ed.undo()
-            self.bool_constrain = False
-            self.list_vertices_co = []
-            self.list_vertices = []
+            self.vector_constrain = None
+            self.list_verts_co = []
+            self.list_verts = []
             self.list_edges = []
             self.list_faces = []
             self.obj = bpy.context.active_object
             self.obj_matrix = self.obj.matrix_world.copy()
             self.bm = bmesh.from_edit_mesh(self.obj.data)
             return {'RUNNING_MODAL'}
-
-        elif event.type in Constrain.keys:
-            Constrain2 = Constrain(self.bool_constrain, self.vector_constrain)
-            self.bool_constrain, self.vector_constrain = Constrain2.modal(context, event)
-            if self.vector_constrain == 'shift':
-                if isinstance(self.geom, bmesh.types.BMEdge):
-                    #self.vector_constrain = self.obj_matrix*self.geom.verts[1].co-self.obj_matrix*self.geom.verts[0].co
-                    self.vector_constrain = (self.geom.verts[1].co-self.geom.verts[0].co)*self.obj_matrix.inverted()
-                else:
-                    self.bool_constrain = False
-            self.bool_update = True
 
         if event.type == 'MOUSEMOVE' or self.bool_update:
             if self.rv3d.view_matrix != self.rotMat:
@@ -616,24 +600,36 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
 
             bpy.ops.view3d.select(location=(x, y))
 
-            if self.list_vertices != []:
-                bm_vert_to_perpendicular = self.list_vertices[-1]
+            if self.list_verts != []:
+                previous_vert = self.list_verts[-1]
             else:
-                bm_vert_to_perpendicular = None
+                previous_vert = None
             
             
             outer_verts = self.outer_verts and not self.keytab
 
-            self.location, self.type = SnapUtilities(self, context, self.obj_matrix,
-                    self.geom, self.bool_update, bm_vert_to_perpendicular, (x, y), 
-                    self.bool_constrain, self.vector_constrain, outer_verts,
-                    ignore_obj = None, increm = self.incremental)
+            snap_utilities(self, 
+                context, 
+                self.obj_matrix,
+                self.geom,
+                self.bool_update,
+                (x, y),
+                outer_verts = self.outer_verts,
+                constrain = self.vector_constrain,
+                previous_vert = previous_vert,
+                ignore_obj = self.obj,
+                increment = self.incremental,
+                )
+            
+            if self.snap_to_grid and self.type == 'OUT':
+                loc = self.location/self.rd
+                self.location = Vector((round(loc.x),
+                                        round(loc.y),
+                                        round(loc.z)))*self.rd
 
-            if self.keyf8 and self.list_vertices_co != []:
-                lloc = self.list_vertices_co[-1]
-                self.bool_constrain = True
-                orig = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, (x, y))
-                view_vec = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, (x, y))
+            if self.keyf8 and self.list_verts_co:
+                lloc = self.list_verts_co[-1]
+                orig, view_vec = region_2d_to_orig_and_view_vector(self.region, self.rv3d, (x, y))
                 location = mathutils.geometry.intersect_point_line(lloc, orig, (orig+view_vec))
                 vec = (location[0] - lloc)
                 ax, ay, az = abs(vec.x),abs(vec.y),abs(vec.z)
@@ -641,10 +637,53 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 vec.y = ay > ax > az or ay > az > ax
                 vec.z = az > ay > ax or az > ax > ay
                 if vec == Vector():
-                    vec = Vector((1,0,0))
-                self.vector_constrain = vec
+                    self.vector_constrain = None
+                else:
+                    vc = lloc+vec
+                    try:
+                        if vc != self.vector_constrain[1]:
+                            type = 'X' if vec.x else 'Y' if vec.y else 'Z' if vec.z else 'shift'
+                            self.vector_constrain = [lloc, vc, type]
+                    except:
+                        type = 'X' if vec.x else 'Y' if vec.y else 'Z' if vec.z else 'shift'
+                        self.vector_constrain = [lloc, vc, type]
 
         elif event.value == 'PRESS':
+            if event.type in self.constrain_keys:
+                self.bool_update = True
+                if not self.vector_constrain:
+                    if event.shift:
+                        if isinstance(self.geom, bmesh.types.BMEdge):
+                            if self.list_verts:
+                                loc = self.list_verts[-1].co
+                                self.vector_constrain = (loc, loc + self.geom.verts[1].co-self.geom.verts[0].co, event.type)
+                            else:
+                                self.vector_constrain = [v.co for v in self.geom.verts]+[event.type]
+                    else:
+                        if self.list_verts:
+                            loc = self.list_verts[-1].co
+                        else:
+                            loc = self.location
+                        self.vector_constrain = [loc, loc + self.constrain_keys[event.type]]+[event.type]
+                    
+                elif self.vector_constrain[2] == event.type:
+                    self.vector_constrain = ()
+                        
+                else:
+                    if event.shift:
+                        if isinstance(self.geom, bmesh.types.BMEdge):
+                            if self.list_verts:
+                                loc = self.list_verts[-1].co
+                                self.vector_constrain = (loc, loc + self.geom.verts[1].co-self.geom.verts[0].co, event.type)
+                            else:
+                                self.vector_constrain = [v.co for v in self.geom.verts]+[event.type]
+                    else:
+                        if self.list_verts:
+                            loc = self.list_verts[-1].co
+                        else:
+                            loc = self.location
+                        self.vector_constrain = [loc, loc + self.constrain_keys[event.type]]+[event.type]
+
             if event.ascii in CharMap.ascii or event.type in CharMap.type:
                 CharMap2 = CharMap(self.length_entered)
                 self.length_entered = CharMap2.modal(context, event)
@@ -655,7 +694,7 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 snap_3d = self.location
                 Lsnap_3d = self.obj_matrix.inverted()*snap_3d
                 Snap_2d = location_3d_to_region_2d(self.region, self.rv3d, snap_3d)
-                if self.bool_constrain and isinstance(self.geom, bmesh.types.BMVert): # SELECT FIRST
+                if self.vector_constrain and isinstance(self.geom, bmesh.types.BMVert): # SELECT FIRST
                     bpy.ops.view3d.select(location=(int(Snap_2d[0]), int(Snap_2d[1])))
                     try:
                         geom2 = self.bm.select_history[0]
@@ -663,9 +702,9 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                         geom2 = None
                 else:
                     geom2 = self.geom
-                self.bool_constrain = False
-                self.list_vertices_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d)
-                bpy.ops.ed.undo_push(message="Add an undo step *function may be moved*")
+                self.vector_constrain = None
+                self.list_verts_co = draw_line(self, self.obj, self.bm, geom2, Lsnap_3d)
+                bpy.ops.ed.undo_push(message="Undo draw line*")
 
             elif event.type == 'TAB':
                 self.keytab = self.keytab == False
@@ -675,29 +714,26 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                     context.tool_settings.mesh_select_mode = (True, True, True)
 
             elif event.type == 'F8':
-                self.bool_constrain = False
+                self.vector_constrain = None
                 self.keyf8 = self.keyf8 == False
 
         elif event.value == 'RELEASE':
-            if event.type in {'LEFT_CTRL', 'RIGHT_CTRL'}:
-                self.bool_constrain = False
-
-            elif event.type in {'RET', 'NUMPAD_ENTER'}:
-                if self.length_entered != "" and self.list_vertices_co != []:
+            if event.type in {'RET', 'NUMPAD_ENTER'}:
+                if self.length_entered != "" and self.list_verts_co != []:
                     try:
                         text_value = bpy.utils.units.to_value(self.unit_system, 'LENGTH', self.length_entered)
-                        vector = (self.location-self.list_vertices_co[-1]).normalized()
-                        location = (self.list_vertices_co[-1]+(vector*text_value))
+                        vector = (self.location-self.list_verts_co[-1]).normalized()
+                        location = (self.list_verts_co[-1]+(vector*text_value))
                         G_location = self.obj_matrix.inverted()*location
-                        self.list_vertices_co = draw_line(self, self.obj, self.bm, self.geom, G_location)
+                        self.list_verts_co = draw_line(self, self.obj, self.bm, self.geom, G_location)
                         self.length_entered = ""
-                        self.bool_constrain = False
+                        self.vector_constrain = None
 
                     except:# ValueError:
                         self.report({'INFO'}, "Operation not supported yet")
 
             elif event.type in {'RIGHTMOUSE', 'ESC'}:
-                if self.list_vertices_co == [] or event.type == 'ESC':                
+                if self.list_verts_co == [] or event.type == 'ESC':                
                     bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
                     context.tool_settings.mesh_select_mode = self.select_mode
                     context.area.header_text_set()
@@ -706,17 +742,29 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                         bpy.ops.object.editmode_toggle()
                     return {'FINISHED'}
                 else:
-                    self.bool_constrain = False
-                    self.list_vertices = []
-                    self.list_vertices_co = []
+                    self.vector_constrain = None
+                    self.list_verts = []
+                    self.list_verts_co = []
                     self.list_faces = []
 
-        navigation(self, context, event)
+        a = ""        
+        if self.list_verts_co:
+            if self.length_entered == "":
+                length = self.len
+                length = convert_distance(length, self.uinfo)
+                a = 'length: '+ length
+            else:
+                a = 'length: '+ self.length_entered
+        context.area.header_text_set("hit: %.3f %.3f %.3f %s" % (self.location[0], self.location[1], self.location[2], a))
+
+        self.modal_navigation(context, event)
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):        
         if context.space_data.type == 'VIEW_3D':
-            create_new_obj = context.user_preferences.addons[__name__].preferences.create_new_obj
+            #print('name', __name__, __package__)
+            preferences = context.user_preferences.addons[__name__].preferences
+            create_new_obj = preferences.create_new_obj
             if context.mode == 'OBJECT' and (create_new_obj or context.object == None or context.object.type != 'MESH'):
 
                 mesh = bpy.data.meshes.new("")
@@ -724,11 +772,23 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
                 context.scene.objects.link(obj)
                 context.scene.objects.active = obj
 
-            bgl.glEnable(bgl.GL_POINT_SMOOTH)
+            #bgl.glEnable(bgl.GL_POINT_SMOOTH)
             self.is_editmode = bpy.context.object.data.is_editmode
             bpy.ops.object.mode_set(mode='EDIT')
             context.space_data.use_occlude_geometry = True
-            self.uinfo = getUnitsInfo()
+            
+            self.scale = context.scene.unit_settings.scale_length
+            self.unit_system = context.scene.unit_settings.system
+            self.separate_units = context.scene.unit_settings.use_separate
+            self.uinfo = get_units_info(self.scale, self.unit_system, self.separate_units)
+
+            grid = context.scene.unit_settings.scale_length/context.space_data.grid_scale
+            relative_scale = preferences.relative_scale
+            self.scale = grid/relative_scale
+            self.rd = bpy.utils.units.to_value(self.unit_system, 'LENGTH', str(1/self.scale))
+
+            incremental = preferences.incremental
+            self.incremental = bpy.utils.units.to_value(self.unit_system, 'LENGTH', str(incremental))
 
             self.use_rotate_around_active = context.user_preferences.view.use_rotate_around_active
             context.user_preferences.view.use_rotate_around_active = True
@@ -744,42 +804,35 @@ class MESH_OT_snap_utilities_line(bpy.types.Operator):
             self.bm = bmesh.from_edit_mesh(self.obj.data)
             
             self.location = Vector()
-            self.list_vertices = []
-            self.list_vertices_co = []
-            self.bool_constrain = False
+            self.list_verts = []
+            self.list_verts_co = []
             self.bool_update = False
-            self.vector_constrain = None
+            self.vector_constrain = ()
             self.keytab = False
             self.keyf8 = False
             self.type = 'OUT'
             self.len = 0
             self.length_entered = ""
-            self._handle = bpy.types.SpaceView3D.draw_handler_add(draw_callback_px, (self, context), 'WINDOW', 'POST_VIEW')
-            context.window_manager.modal_handler_add(self)
             
-            self.out_color = context.user_preferences.addons[__name__].preferences.out_color
-            self.face_color = context.user_preferences.addons[__name__].preferences.face_color
-            self.edge_color = context.user_preferences.addons[__name__].preferences.edge_color
-            self.vert_color = context.user_preferences.addons[__name__].preferences.vert_color
-            self.center_color = context.user_preferences.addons[__name__].preferences.center_color
-            self.perpendicular_color = context.user_preferences.addons[__name__].preferences.perpendicular_color
-            self.constrain_shift_color = context.user_preferences.addons[__name__].preferences.constrain_shift_color
+            self.out_color = preferences.out_color
+            self.face_color = preferences.face_color
+            self.edge_color = preferences.edge_color
+            self.vert_color = preferences.vert_color
+            self.center_color = preferences.center_color
+            self.perpendicular_color = preferences.perpendicular_color
+            self.constrain_shift_color = preferences.constrain_shift_color
 
             self.axis_x_color = tuple(context.user_preferences.themes[0].user_interface.axis_x)
             self.axis_y_color = tuple(context.user_preferences.themes[0].user_interface.axis_y)
             self.axis_z_color = tuple(context.user_preferences.themes[0].user_interface.axis_z)
 
-            self.intersect = context.user_preferences.addons[__name__].preferences.intersect
-            self.create_face = context.user_preferences.addons[__name__].preferences.create_face
-            self.outer_verts = context.user_preferences.addons[__name__].preferences.outer_verts
-            self.snap_to_grid = context.user_preferences.addons[__name__].preferences.increments_grid
-            relative_scale = context.user_preferences.addons[__name__].preferences.relative_scale
-            grid = context.scene.unit_settings.scale_length/context.space_data.grid_scale
-            self.scale = grid/relative_scale
+            self.intersect = preferences.intersect
+            self.create_face = preferences.create_face
+            self.outer_verts = preferences.outer_verts
+            self.snap_to_grid = preferences.increments_grid
 
-            self.unit_system = context.scene.unit_settings.system
-            incremental = context.user_preferences.addons[__name__].preferences.incremental
-            self.incremental = bpy.utils.units.to_value(self.unit_system, 'LENGTH', str(incremental))
+            self._handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_callback_px, (context,), 'WINDOW', 'POST_VIEW')
+            context.window_manager.modal_handler_add(self)
             return {'RUNNING_MODAL'}
         else:
             self.report({'WARNING'}, "Active space must be a View3d")
@@ -937,13 +990,13 @@ class SnapAddonPreferences(bpy.types.AddonPreferences):
 def register():
     print('Addon', __name__, 'registered')
     bpy.utils.register_class(SnapAddonPreferences)
-    bpy.utils.register_class(MESH_OT_snap_utilities_line)
+    bpy.utils.register_class(SnapUtilitiesLine)
     update_panel(None, bpy.context)
     #bpy.utils.register_class(PanelSnapUtilities)
 
 def unregister():
     bpy.utils.unregister_class(PanelSnapUtilities)
-    bpy.utils.unregister_class(MESH_OT_snap_utilities_line)
+    bpy.utils.unregister_class(SnapUtilitiesLine)
     bpy.utils.unregister_class(SnapAddonPreferences)
 
 if __name__ == "__main__":
