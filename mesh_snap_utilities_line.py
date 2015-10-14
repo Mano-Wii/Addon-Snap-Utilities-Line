@@ -668,13 +668,13 @@ class SnapUtilitiesLine(bpy.types.Operator):
                     if event.shift:
                         if isinstance(self.geom, bmesh.types.BMEdge):
                             if self.list_verts:
-                                loc = self.obj_matrix * self.list_verts[-1].co
-                                self.vector_constrain = (loc, loc + self.obj_matrix * self.geom.verts[1].co - self.obj_matrix * self.geom.verts[0].co, event.type)
+                                loc = self.list_verts_co[-1]
+                                self.vector_constrain = (loc, loc + self.list_verts_co[-1] - self.list_verts_co[0], event.type)
                             else:
                                 self.vector_constrain = [self.obj_matrix * v.co for v in self.geom.verts]+[event.type]
                     else:
                         if self.list_verts:
-                            loc = self.obj_matrix * self.list_verts[-1].co
+                            loc = self.list_verts_co[-1]
                         else:
                             loc = self.location
                         self.vector_constrain = [loc, loc + self.constrain_keys[event.type]]+[event.type]
