@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (5, 0),
+    "version": (5, 3),
     "blender": (2, 75, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -474,6 +474,12 @@ class SnapUtilitiesLine(bpy.types.Operator):
         'LEFT_SHIFT': 'shift',
         }
 
+    @classmethod
+    def poll(cls, context):
+        return (context.mode in {'EDIT_MESH', 'OBJECT'} and
+                context.object is not None and
+                context.object.type == 'MESH')
+
     def modal_navigation(self, context, event):
         #TO DO:
         #'View Orbit', 'View Pan', 'NDOF Orbit View', 'NDOF Pan View'
@@ -845,7 +851,8 @@ class PanelSnapUtilities(bpy.types.Panel) :
 
     @classmethod
     def poll(cls, context):
-        return (context.object is not None and
+        return (context.mode in {'EDIT_MESH', 'OBJECT'} and
+                context.object is not None and
                 context.object.type == 'MESH')
 
     def draw(self, context):
