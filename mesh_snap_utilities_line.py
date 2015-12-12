@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (5, 3),
+    "version": (5, 6),
     "blender": (2, 75, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -252,28 +252,18 @@ def snap_utilities(self,
         self.type = 'OUT'
 
         orig, view_vector = region_2d_to_orig_and_view_vector(region, rv3d, mcursor)
-        end = orig + view_vector * 1000
 
-        if not outer_verts or self.out_obj == None:
-            result, self.out_obj, self.out_mat, self.location, normal = context.scene.ray_cast(orig, end)
+        if outer_verts:
+            result, self.location, normal, face_index, self.out_obj, self.out_mat = context.scene.ray_cast(orig, view_vector)
             self.out_mat_inv = self.out_mat.inverted()
-            #print(self.location)
 
         if self.out_obj and self.out_obj != ignore_obj:
             self.type = 'FACE'
             if outer_verts:
-                # get the ray relative to the self.out_obj
-                ray_origin_obj = self.out_mat_inv * orig
-                ray_target_obj = self.out_mat_inv * end
-                location, normal, face_index = self.out_obj.ray_cast(ray_origin_obj, ray_target_obj)
-                if face_index == -1:
-                    self.out_obj = None
-                else:
-                    self.location = self.out_mat*location
+                if face_index != -1:
                     try:
                         verts = self.out_obj.data.polygons[face_index].vertices
                         v_dist = 100
-
                         for i in verts:
                             v_co = self.out_mat*self.out_obj.data.vertices[i].co
                             v_2d = location_3d_to_region_2d(region, rv3d, v_co)
@@ -291,7 +281,7 @@ def snap_utilities(self,
                 self.location = intersect_point_line(self.preloc, constrain[0], constrain[1])[0]
         else:
             if constrain:
-                self.location = intersect_line_line(constrain[0], constrain[1], orig, end)[0]
+                self.location = intersect_line_line(constrain[0], constrain[1], orig, orig+view_vector)[0]
             else:
                 self.location = out_Location(rv3d, region, orig, view_vector)
 
@@ -372,29 +362,22 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                 self.list_edges.append(edge)
             else:
                 face = [x for x in V2.link_faces[:] if x in V1.link_faces[:]]
-                if face != []:# and self.list_faces == []:
+                if face:# and self.list_faces == []:
                     self.list_faces = face
                     
-                elif V1.link_faces[:] == [] or V2.link_faces[:] == []:
-                    if self.list_faces == []:
-                        if V1.link_faces[:] != []:
-                            Vfaces = V1.link_faces
-                            Vtest = V2.co
-                        elif V2.link_faces[:] != []:
-                            Vfaces = V2.link_faces
-                            Vtest = V1.co
-                        else:
-                            Vfaces = []
-                        for face in Vfaces:
-                            testface = bmesh.geometry.intersect_face_point(face, Vtest)
-                            if testface:
-                                self.list_faces.append(face)
+                elif not self.list_faces and (not V1.link_faces or not V2.link_faces):
+                    for face in V1.link_faces:
+                        if bmesh.geometry.intersect_face_point(face, V2.co):
+                            self.list_faces.append(face)
+                    for face in V2.link_faces:
+                        if bmesh.geometry.intersect_face_point(face, V1.co):
+                            self.list_faces.append(face)
 
-                if self.list_faces != []:
+                if self.list_faces:
                     edge = Bmesh.edges.new([V1, V2])
                     self.list_edges.append(edge)
                     ed_list = get_isolated_edges(V2)
-                    for face in list(set(self.list_faces)):
+                    for face in set(self.list_faces):
                         facesp = bmesh.utils.face_split_edgenet(face, list(set(ed_list)))
                         self.list_faces = []
                 else:
