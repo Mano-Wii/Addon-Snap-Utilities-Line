@@ -22,7 +22,7 @@
 bl_info = {
     "name": "Snap_Utilities_Line",
     "author": "Germano Cavalcante",
-    "version": (5, 6),
+    "version": (5, 7),
     "blender": (2, 75, 0),
     "location": "View3D > TOOLS > Snap Utilities > snap utilities",
     "description": "Extends Blender Snap controls",
@@ -359,17 +359,17 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                 edge = Bmesh.edges.new([V1, V2])
                 self.list_edges.append(edge)
             else:
-                face = [x for x in V2.link_faces[:] if x in V1.link_faces[:]]
-                if face:# and self.list_faces == []:
-                    self.list_faces = face
+                link_two_faces = V1.link_faces and V2.link_faces
+                if link_two_faces:
+                    self.list_faces = [f for f in V2.link_faces if f in V1.link_faces]
                     
-                elif not self.list_faces and (not V1.link_faces or not V2.link_faces):
-                    for face in V1.link_faces:
-                        if bmesh.geometry.intersect_face_point(face, V2.co):
-                            self.list_faces.append(face)
-                    for face in V2.link_faces:
-                        if bmesh.geometry.intersect_face_point(face, V1.co):
-                            self.list_faces.append(face)
+                elif not self.list_faces:
+                    faces, co2 = (V1.link_faces, V2.co.copy()) if V1.link_faces else (V2.link_faces, V1.co.copy())
+                    for face in faces:
+                        if bmesh.geometry.intersect_face_point(face, co2):
+                            co = co2 - face.calc_center_median()
+                            if co.dot(face.normal) < 0.001:
+                                self.list_faces.append(face)
 
                 if self.list_faces:
                     edge = Bmesh.edges.new([V1, V2])
@@ -380,8 +380,9 @@ def draw_line(self, obj, Bmesh, bm_geom, location):
                         self.list_faces = []
                 else:
                     if self.intersect:
-                        facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = [V1, V2])
-                    if not self.intersect or facesp['edges'] == []:
+                        facesp = bmesh.ops.connect_vert_pair(Bmesh, verts = [V1, V2], verts_exclude=Bmesh.verts)
+                        print(facesp)
+                    if not self.intersect or not facesp['edges']:
                         edge = Bmesh.edges.new([V1, V2])
                         self.list_edges.append(edge)
                     else:   
@@ -457,9 +458,11 @@ class SnapUtilitiesLine(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        preferences = context.user_preferences.addons[__name__].preferences
         return (context.mode in {'EDIT_MESH', 'OBJECT'} and
-                context.object is not None and
-                context.object.type == 'MESH')
+                preferences.create_new_obj or 
+                (context.object is not None and
+                context.object.type == 'MESH'))
 
     def modal_navigation(self, context, event):
         #TO DO:
@@ -832,9 +835,11 @@ class PanelSnapUtilities(bpy.types.Panel) :
 
     @classmethod
     def poll(cls, context):
+        preferences = context.user_preferences.addons[__name__].preferences
         return (context.mode in {'EDIT_MESH', 'OBJECT'} and
-                context.object is not None and
-                context.object.type == 'MESH')
+                preferences.create_new_obj or 
+                (context.object is not None and
+                context.object.type == 'MESH'))
 
     def draw(self, context):
         layout = self.layout
