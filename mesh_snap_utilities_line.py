@@ -29,7 +29,7 @@ bl_info = {
     "wiki_url" : "http://blenderartists.org/forum/showthread.php?363859-Addon-CAD-Snap-Utilities",
     "category": "Mesh"}
     
-import bpy, bgl, bmesh, mathutils, math
+import bpy, bgl, bmesh
 from mathutils import Vector
 from mathutils.geometry import (
     intersect_point_line,
@@ -51,7 +51,7 @@ def get_units_info(scale, unit_system, separate_units):
 
     return (scale, scale_steps, separate_units)
 
-def convert_distance(val, units_info, PRECISION = 5):
+def convert_distance(val, units_info, precision = 5):
     scale, scale_steps, separate_units = units_info
     sval = val * scale
     idx = 0
@@ -62,10 +62,10 @@ def convert_distance(val, units_info, PRECISION = 5):
     factor, suffix = scale_steps[idx]
     sval /= factor
     if not separate_units or idx == len(scale_steps) - 1:
-            dval = str(round(sval, PRECISION)) + suffix
+            dval = str(round(sval, precision)) + suffix
     else:
             ival = int(sval)
-            dval = str(round(ival, PRECISION)) + suffix
+            dval = str(round(ival, precision)) + suffix
             fval = sval - ival
             idx += 1
             while idx < len(scale_steps):
