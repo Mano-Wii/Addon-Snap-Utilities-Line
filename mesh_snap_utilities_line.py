@@ -297,11 +297,9 @@ def snap_utilities(self,
             self.len = vec.length
 
 def get_isolated_edges(bmvert):
-    linked = [c for c in bmvert.link_edges[:] if c.link_faces[:] == []]
-    for a in linked:
-        edges = [b for c in a.verts[:] if c.link_faces[:] == [] for b in c.link_edges[:] if b not in linked]
-        for e in edges:
-            linked.append(e)
+    linked = [e for e in bmvert.link_edges if not e.link_faces]
+    for e in linked:
+        linked += [le for v in e.verts if not v.link_faces for le in v.link_edges if le not in linked]
     return linked
 
 def draw_line(self, obj, Bmesh, bm_geom, location):
