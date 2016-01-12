@@ -138,17 +138,19 @@ def out_Location(rv3d, region, orig, vector):
         hit = Vector((0,0,0))
     return hit
 
+B_VERSION = bpy.app.version
+B_VERSION = B_VERSION[1] > 76 or (B_VERSION[1] == 76 and B_VERSION[2] >= 3)
 def snap_utilities(self,
-    context,
-    obj_matrix_world,
-    bm_geom,
-    bool_update,
-    mcursor,
-    outer_verts = False,
-    constrain = None,
-    previous_vert = None,
-    ignore_obj = None,
-    increment = 0.0):
+                context,
+                obj_matrix_world,
+                bm_geom,
+                bool_update,
+                mcursor,
+                outer_verts = False,
+                constrain = None,
+                previous_vert = None,
+                ignore_obj = None,
+                increment = 0.0):
 
     rv3d = context.region_data
     region = context.region
@@ -253,37 +255,87 @@ def snap_utilities(self,
 
         orig, view_vector = region_2d_to_orig_and_view_vector(region, rv3d, mcursor)
 
-        if outer_verts:
-            result, self.location, normal, face_index, self.out_obj, self.out_mat = context.scene.ray_cast(orig, view_vector)
-            self.out_mat_inv = self.out_mat.inverted()
+        if B_VERSION:
+            result, self.location, normal, face_index, self.out_obj, self.out_mat = context.scene.ray_cast(orig, view_vector, 3.3e+38)
+            if result and self.out_obj != ignore_obj:
+                self.type = 'FACE'
+                if outer_verts:
+                    if face_index != -1:
+                        try:
+                            verts = self.out_obj.data.polygons[face_index].vertices
+                            v_dist = 100
 
-        if self.out_obj and self.out_obj != ignore_obj:
-            self.type = 'FACE'
-            if outer_verts:
-                if face_index != -1:
-                    try:
-                        verts = self.out_obj.data.polygons[face_index].vertices
-                        v_dist = 100
-                        for i in verts:
-                            v_co = self.out_mat*self.out_obj.data.vertices[i].co
-                            v_2d = location_3d_to_region_2d(region, rv3d, v_co)
-                            dist = (Vector(mcursor)-v_2d).length_squared
-                            if dist < v_dist:
-                                is_increment = False
-                                self.type = 'VERT'
-                                v_dist = dist
-                                self.location = v_co
-                    except:
-                        print('Fail')
-            if constrain:
-                is_increment = False
-                self.preloc = self.location
-                self.location = intersect_point_line(self.preloc, constrain[0], constrain[1])[0]
-        else:
-            if constrain:
-                self.location = intersect_line_line(constrain[0], constrain[1], orig, orig+view_vector)[0]
+                            for i in verts:
+                                v_co = self.out_mat*self.out_obj.data.vertices[i].co
+                                v_2d = location_3d_to_region_2d(region, rv3d, v_co)
+                                dist = (Vector(mcursor)-v_2d).length_squared
+                                if dist < v_dist:
+                                    is_increment = False
+                                    self.type = 'VERT'
+                                    v_dist = dist
+                                    self.location = v_co
+                        except:
+                            print('Fail')
+                if constrain:
+                    is_increment = False
+                    self.preloc = self.location
+                    self.location = intersect_point_line(self.preloc, constrain[0], constrain[1])[0]
             else:
-                self.location = out_Location(rv3d, region, orig, view_vector)
+                if constrain:
+                    location = intersect_line_line(constrain[0], constrain[1], orig, orig+view_vector)
+                    if location:
+                        self.location = location[0]
+                    else:
+                        self.location = constrain[0]
+                else:
+                    self.location = out_Location(rv3d, region, orig, view_vector)
+
+        else: ### VERSION 2.76 deprecated ###
+            end = orig + view_vector * 1000
+
+            result, self.out_obj, self.out_mat, self.location, normal = context.scene.ray_cast(orig, end)
+            
+            if result and self.out_obj != ignore_obj:
+                self.type = 'FACE'
+                if outer_verts:
+                    # get the ray relative to the self.out_obj
+                    self.out_mat_inv = self.out_mat.inverted()
+                    ray_origin_obj = self.out_mat_inv * orig
+                    ray_target_obj = self.out_mat_inv * end
+                    location, normal, face_index = self.out_obj.ray_cast(ray_origin_obj, ray_target_obj)
+                    if face_index == -1:
+                        self.out_obj = None
+                    else:
+                        self.location = self.out_mat*location
+                        try:
+                            verts = self.out_obj.data.polygons[face_index].vertices
+                            v_dist = 100
+
+                            for i in verts:
+                                v_co = self.out_mat*self.out_obj.data.vertices[i].co
+                                v_2d = location_3d_to_region_2d(region, rv3d, v_co)
+                                dist = (Vector(mcursor)-v_2d).length_squared
+                                if dist < v_dist:
+                                    is_increment = False
+                                    self.type = 'VERT'
+                                    v_dist = dist
+                                    self.location = v_co
+                        except:
+                            print('Fail')
+                if constrain:
+                    is_increment = False
+                    self.preloc = self.location
+                    self.location = intersect_point_line(self.preloc, constrain[0], constrain[1])[0]
+            else:
+                if constrain:
+                    location = intersect_line_line(constrain[0], constrain[1], orig, end)
+                    if location:
+                        self.location = location[0]
+                    else:
+                        self.location = constrain[0]
+                else:
+                    self.location = out_Location(rv3d, region, orig, view_vector)
+    ### END 2.76 VERSION ###
 
     if previous_vert:
         pvert_co = obj_matrix_world*previous_vert.co
